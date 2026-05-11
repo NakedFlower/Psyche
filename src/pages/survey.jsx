@@ -173,7 +173,7 @@ export default function Survey() {
           <div className="step-content" key="step-0">
             <h2 className="step-title">사진을 올려주세요</h2>
             <p className="step-description">
-              미래의 나를 시각화하는 데 사용됩니다. (선택사항)
+              미래의 나를 시각화하는 데 사용됩니다.
             </p>
             <div className="photo-upload-area">
               {photos.map((photo, idx) => (
