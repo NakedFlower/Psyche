@@ -32,7 +32,7 @@ jobs:
       - name: Build and push Docker image
         env:
           ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com
-          ECR_REPOSITORY: psyche-back
+          ECR_REPOSITORY: psyche-ecr
           IMAGE_TAG: latest
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./back
@@ -47,11 +47,11 @@ jobs:
           script: |
             ECR_URI=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com
             aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin $ECR_URI
-            docker pull $ECR_URI/psyche-back:latest
-            docker stop psyche-back || true
-            docker rm psyche-back || true
+            docker pull $ECR_URI/psyche-ecr:latest
+            docker stop psyche-ecr || true
+            docker rm psyche-ecr || true
             docker run -d \
-              --name psyche-back \
+              --name psyche-ecr \
               -p 8000:8000 \
               -e DB_USER=${{ secrets.DB_USER }} \
               -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
