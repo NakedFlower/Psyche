@@ -10,8 +10,8 @@ export type SurveyForm = {
   habits: string;
   goals: string;
   concerns: string;
-  voiceTranscript: string;
   imageFileName?: string;
+  imagePreviewUrl?: string;
 };
 
 export type Persona = {

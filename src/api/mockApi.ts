@@ -30,7 +30,7 @@ let surveyStore: SurveyForm | null = null;
 let creditBalance: CreditBalance = {
   remaining: 3,
   premiumUnlocked: false,
-  lockedFeatures: ['VOICE_SURVEY', 'WEIGHT_CONTROL'],
+  lockedFeatures: ['WEIGHT_CONTROL'],
 };
 
 export const api = {
@@ -60,14 +60,6 @@ export const api = {
     return {
       fileName,
       imageUrl: '/future-portrait.svg',
-    };
-  },
-
-  async convertVoiceToSurvey() {
-    await wait(500);
-    return {
-      transcript:
-        '요즘 커리어 방향이 가장 큰 고민이고, 꾸준한 운동과 기록 습관을 만들고 싶어요.',
     };
   },
 

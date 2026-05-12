@@ -1,14 +1,10 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BadgeCheck,
   Camera,
   CreditCard,
   LogIn,
-  Mic,
-  Phone,
-  RefreshCw,
   Send,
-  SlidersHorizontal,
   Sparkles,
   Upload,
   Video,
@@ -16,13 +12,15 @@ import {
 import { api } from './api/mockApi';
 import type { ChatMessage, CreditBalance, Persona, SurveyForm, WeightSettings } from './types';
 
+type AppView = 'flow' | 'dashboard';
+type FlowStep = 'login' | 'survey' | 'generating' | 'weights' | 'chat';
+
 const initialSurvey: SurveyForm = {
   mbti: 'INFJ',
   values: '성장, 안정, 관계',
   habits: '늦게 자고 몰아서 일하지만 기록은 꾸준히 남긴다.',
   goals: '3년 안에 제품을 끝까지 책임지는 프론트엔드 개발자가 된다.',
   concerns: '진로 선택이 늦은 것 같고 번아웃이 반복될까 봐 걱정된다.',
-  voiceTranscript: '',
 };
 
 const initialWeights: WeightSettings = {
@@ -35,16 +33,26 @@ const endpoints = [
   ['POST', '/api/v1/auth/login'],
   ['POST', '/api/v1/surveys'],
   ['POST', '/api/v1/surveys/image'],
-  ['POST', '/api/v1/surveys/stt'],
   ['POST', '/api/v1/personas/generate'],
   ['PATCH', '/api/v1/personas/{id}/weights'],
   ['POST', '/api/v1/chats/session'],
+  ['POST', '/api/v1/chats/{id}/logs'],
   ['GET', '/api/v1/credits/balance'],
+];
+
+const flowSteps: Array<{ id: FlowStep; label: string }> = [
+  { id: 'login', label: '로그인' },
+  { id: 'survey', label: '설문' },
+  { id: 'generating', label: '생성 대기' },
+  { id: 'weights', label: '가중치' },
+  { id: 'chat', label: '대화' },
 ];
 
 const formatPercent = (value: number) => `${Math.round(value * 100)}%`;
 
 export function App() {
+  const [view, setView] = useState<AppView>('flow');
+  const [step, setStep] = useState<FlowStep>('login');
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
   const [survey, setSurvey] = useState<SurveyForm>(initialSurvey);
   const [weights, setWeights] = useState<WeightSettings>(initialWeights);
@@ -76,6 +84,7 @@ export function App() {
     setIsBusy(true);
     const response = await api.login(String(form.get('email')), String(form.get('password')));
     setUser(response.user);
+    setStep('survey');
     setIsBusy(false);
   };
 
@@ -87,22 +96,20 @@ export function App() {
     setWeights((current) => ({ ...current, [field]: value }));
   };
 
-  const handleVoice = async () => {
+  const handleImage = async (file: File | null) => {
+    if (!file) return;
     setIsBusy(true);
-    const { transcript } = await api.convertVoiceToSurvey();
-    setSurvey((current) => ({ ...current, voiceTranscript: transcript }));
+    await api.uploadImage(file.name);
+    setSurvey((current) => ({
+      ...current,
+      imageFileName: file.name,
+      imagePreviewUrl: URL.createObjectURL(file),
+    }));
     setIsBusy(false);
   };
 
-  const handleImage = async (fileName: string) => {
-    if (!fileName) return;
-    setIsBusy(true);
-    await api.uploadImage(fileName);
-    setSurvey((current) => ({ ...current, imageFileName: fileName }));
-    setIsBusy(false);
-  };
-
-  const saveSurveyAndGenerate = async () => {
+  const startPersonaGeneration = async () => {
+    setStep('generating');
     setIsBusy(true);
     await api.saveSurvey(survey);
     const persona = await api.generatePersona(targetYear, weights);
@@ -111,14 +118,22 @@ export function App() {
     setSelectedPersonaId(persona.id);
     setCredit(balance);
     setIsBusy(false);
+    setStep('weights');
   };
 
   const syncWeights = async () => {
     if (!selectedPersona) return;
     setIsBusy(true);
-    await api.updateWeights(selectedPersona.id, weights);
+    const updatedPersona = await api.updateWeights(selectedPersona.id, weights);
     setPersonas(await api.listPersonas());
+    setSelectedPersonaId(updatedPersona.id);
     setIsBusy(false);
+  };
+
+  const goToChat = async () => {
+    await syncWeights();
+    await startSession('video');
+    setStep('chat');
   };
 
   const startSession = async (mode: 'video' | 'voice') => {
@@ -144,10 +159,24 @@ export function App() {
     setMessages((current) => [...current, response]);
   };
 
-  const unlock = async (packageType: 'VOICE_SURVEY' | 'WEIGHT_CONTROL') => {
+  const openPersonaChat = async (persona: Persona) => {
+    setSelectedPersonaId(persona.id);
+    setWeights(persona.weights);
+    setView('flow');
+    setStep('chat');
     setIsBusy(true);
-    setCredit(await api.unlockFeature(packageType));
+    const session = await api.startChatSession(persona.id, 'video');
+    setActiveSession(session.id);
     setIsBusy(false);
+  };
+
+  const startNewPersonaFlow = () => {
+    if ((credit?.remaining ?? 0) <= 0) return;
+    setView('flow');
+    setStep(user ? 'survey' : 'login');
+    setActiveSession('');
+    setMessages([]);
+    setChatInput('요즘 진로가 불안해. 지금 무엇부터 바꿔야 할까?');
   };
 
   return (
@@ -161,11 +190,13 @@ export function App() {
           </div>
         </div>
 
-        <nav className="navList" aria-label="Psyche sections">
-          <a href="#survey">설문</a>
-          <a href="#persona">페르소나</a>
-          <a href="#chat">대화</a>
-          <a href="#credits">크레딧</a>
+        <nav className="navList" aria-label="Psyche views">
+          <button className={view === 'flow' ? 'activeNav' : ''} type="button" onClick={() => setView('flow')}>
+            체험 플로우
+          </button>
+          <button className={view === 'dashboard' ? 'activeNav' : ''} type="button" onClick={() => setView('dashboard')}>
+            대시보드
+          </button>
         </nav>
 
         <section className="apiPanel" aria-label="API mock map">
@@ -185,8 +216,8 @@ export function App() {
       <section className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">MVP prototype</p>
-            <h1>미래 자아 생성 워크스페이스</h1>
+            <p className="eyebrow">{view === 'flow' ? 'User journey' : 'MVP dashboard'}</p>
+            <h1>{view === 'flow' ? '미래 자아 체험 플로우' : '미래 자아 생성 워크스페이스'}</h1>
           </div>
           {user ? (
             <div className="userBadge">
@@ -194,212 +225,494 @@ export function App() {
               <small>{user.email}</small>
             </div>
           ) : (
-            <form className="loginForm" onSubmit={login}>
-              <input name="email" type="email" defaultValue="psyche@rookie.ai" aria-label="email" />
-              <input name="password" type="password" defaultValue="psyche-demo" aria-label="password" />
-              <button className="iconButton" type="submit" aria-label="login" disabled={isBusy}>
-                <LogIn size={18} />
-              </button>
-            </form>
+            <span className="sessionPill">login required</span>
           )}
         </header>
 
-        <section className="statusStrip">
-          <Metric label="생성 가능" value={`${credit?.remaining ?? 0}회`} />
-          <Metric label="선택 연도" value={`${targetYear}년 후`} />
-          <Metric label="페르소나" value={`${personas.length}개`} />
-          <Metric label="세션" value={activeSession ? '연결됨' : '대기'} />
-        </section>
-
-        <div className="mainGrid">
-          <section className="surface wide" id="survey">
-            <div className="sectionHeader">
-              <div>
-                <p className="eyebrow">Survey data</p>
-                <h2>사용자 프로파일</h2>
-              </div>
-              <button className="softButton" type="button" onClick={handleVoice} disabled={isBusy}>
-                <Mic size={17} />
-                음성 변환
-              </button>
-            </div>
-
-            <div className="formGrid">
-              <label>
-                MBTI
-                <input value={survey.mbti} onChange={(event) => updateSurvey('mbti', event.target.value)} />
-              </label>
-              <label>
-                가치관
-                <input value={survey.values} onChange={(event) => updateSurvey('values', event.target.value)} />
-              </label>
-              <label>
-                생활 습관
-                <textarea value={survey.habits} onChange={(event) => updateSurvey('habits', event.target.value)} />
-              </label>
-              <label>
-                목표
-                <textarea value={survey.goals} onChange={(event) => updateSurvey('goals', event.target.value)} />
-              </label>
-              <label>
-                현재 고민
-                <textarea value={survey.concerns} onChange={(event) => updateSurvey('concerns', event.target.value)} />
-              </label>
-              <label>
-                STT 결과
-                <textarea
-                  value={survey.voiceTranscript}
-                  onChange={(event) => updateSurvey('voiceTranscript', event.target.value)}
-                  placeholder="음성 설문 변환 결과"
-                />
-              </label>
-            </div>
-
-            <div className="uploadRow">
-              <label className="uploadBox">
-                <Upload size={18} />
-                <span>{survey.imageFileName || '현재 사진 3장 업로드'}</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={(event) => handleImage(event.target.files?.[0]?.name ?? '')}
-                />
-              </label>
-              <div className="yearPicker" role="group" aria-label="target year">
-                {[10, 20, 30].map((year) => (
-                  <button
-                    className={targetYear === year ? 'active' : ''}
-                    key={year}
-                    type="button"
-                    onClick={() => setTargetYear(year)}
-                  >
-                    {year}년
-                  </button>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          <section className="surface" id="persona">
-            <div className="sectionHeader">
-              <div>
-                <p className="eyebrow">Scenario weights</p>
-                <h2>가중치</h2>
-              </div>
-              <SlidersHorizontal size={20} />
-            </div>
-            <Slider label="이상적 미래" value={weights.idealism} onChange={(value) => updateWeight('idealism', value)} />
-            <Slider label="커리어 비중" value={weights.career} onChange={(value) => updateWeight('career', value)} />
-            <Slider label="직언 성향" value={weights.directness} onChange={(value) => updateWeight('directness', value)} />
-            <div className="buttonRow">
-              <button className="primaryButton" type="button" onClick={saveSurveyAndGenerate} disabled={isBusy}>
-                <Sparkles size={18} />
-                생성
-              </button>
-              <button className="softButton" type="button" onClick={syncWeights} disabled={isBusy || !selectedPersona}>
-                <RefreshCw size={17} />
-                반영
-              </button>
-            </div>
-          </section>
-
-          <section className="surface portraitSurface">
-            <div className="portraitFrame">
-              <img src={selectedPersona?.imageUrl ?? '/future-portrait.svg'} alt="future self" />
-              <div className="callControls">
-                <button className="iconButton" type="button" aria-label="voice call" onClick={() => startSession('voice')}>
-                  <Phone size={19} />
-                </button>
-                <button className="iconButton primaryIcon" type="button" aria-label="video call" onClick={() => startSession('video')}>
-                  <Video size={20} />
-                </button>
-                <button className="iconButton" type="button" aria-label="camera">
-                  <Camera size={19} />
-                </button>
-              </div>
-            </div>
-            <h2>{selectedPersona?.title ?? '미래 자아'}</h2>
-            <p>{selectedPersona?.summary ?? '설문과 가중치를 기반으로 생성됩니다.'}</p>
-          </section>
-
-          <section className="surface wide personaList">
-            <div className="sectionHeader">
-              <div>
-                <p className="eyebrow">Persona list</p>
-                <h2>생성 기록</h2>
-              </div>
-            </div>
-            <div className="cards">
-              {personas.map((persona) => (
-                <button
-                  className={persona.id === selectedPersona?.id ? 'personaCard selected' : 'personaCard'}
-                  key={persona.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedPersonaId(persona.id);
-                    setWeights(persona.weights);
-                  }}
-                >
-                  <span>{persona.targetYear}년 후</span>
-                  <strong>{persona.title}</strong>
-                  <small>
-                    이상 {formatPercent(persona.weights.idealism)} · 커리어 {formatPercent(persona.weights.career)} · 직언{' '}
-                    {formatPercent(persona.weights.directness)}
-                  </small>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="surface wide" id="chat">
-            <div className="sectionHeader">
-              <div>
-                <p className="eyebrow">Future conversation</p>
-                <h2>대화 로그</h2>
-              </div>
-              <span className="sessionPill">{activeSession ? 'streaming mock' : 'ready'}</span>
-            </div>
-            <div className="chatLog">
-              {messages.length === 0 && (
-                <div className="emptyChat">아직 저장된 대화가 없습니다.</div>
-              )}
-              {messages.map((message) => (
-                <div className={`message ${message.speaker}`} key={message.id}>
-                  {message.message}
-                </div>
-              ))}
-            </div>
-            <div className="composer">
-              <input value={chatInput} onChange={(event) => setChatInput(event.target.value)} />
-              <button className="iconButton primaryIcon" type="button" aria-label="send" onClick={sendMessage}>
-                <Send size={18} />
-              </button>
-            </div>
-          </section>
-
-          <section className="surface" id="credits">
-            <div className="sectionHeader">
-              <div>
-                <p className="eyebrow">Payment</p>
-                <h2>권한</h2>
-              </div>
-              <CreditCard size={20} />
-            </div>
-            <div className="creditNumber">{credit?.remaining ?? 0}</div>
-            <p className="mutedText">잔여 생성 횟수</p>
-            <div className="buttonColumn">
-              <button className="softButton" type="button" onClick={() => unlock('VOICE_SURVEY')} disabled={isBusy}>
-                음성 설문 해제
-              </button>
-              <button className="softButton" type="button" onClick={() => unlock('WEIGHT_CONTROL')} disabled={isBusy}>
-                가중치 조정 해제
-              </button>
-            </div>
-          </section>
-        </div>
+        {view === 'flow' ? (
+          <FlowView
+            activeSession={activeSession}
+            chatInput={chatInput}
+            credit={credit}
+            isBusy={isBusy}
+            login={login}
+            messages={messages}
+            selectedPersona={selectedPersona}
+            sendMessage={sendMessage}
+            setChatInput={setChatInput}
+            setStep={setStep}
+            startPersonaGeneration={startPersonaGeneration}
+            step={step}
+            survey={survey}
+            targetYear={targetYear}
+            updateSurvey={updateSurvey}
+            handleImage={handleImage}
+            setTargetYear={setTargetYear}
+            user={user}
+            weights={weights}
+            updateWeight={updateWeight}
+            goToChat={goToChat}
+          />
+        ) : (
+          <DashboardView
+            credit={credit}
+            isBusy={isBusy}
+            openPersonaChat={openPersonaChat}
+            personas={personas}
+            selectedPersona={selectedPersona}
+            startNewPersonaFlow={startNewPersonaFlow}
+          />
+        )}
       </section>
     </main>
+  );
+}
+
+function FlowView({
+  activeSession,
+  chatInput,
+  credit,
+  goToChat,
+  handleImage,
+  isBusy,
+  login,
+  messages,
+  selectedPersona,
+  sendMessage,
+  setChatInput,
+  setStep,
+  setTargetYear,
+  startPersonaGeneration,
+  step,
+  survey,
+  targetYear,
+  updateSurvey,
+  updateWeight,
+  user,
+  weights,
+}: {
+  activeSession: string;
+  chatInput: string;
+  credit: CreditBalance | null;
+  goToChat: () => Promise<void>;
+  handleImage: (file: File | null) => Promise<void>;
+  isBusy: boolean;
+  login: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  messages: ChatMessage[];
+  selectedPersona?: Persona;
+  sendMessage: () => Promise<void>;
+  setChatInput: (value: string) => void;
+  setStep: (step: FlowStep) => void;
+  setTargetYear: (year: number) => void;
+  startPersonaGeneration: () => Promise<void>;
+  step: FlowStep;
+  survey: SurveyForm;
+  targetYear: number;
+  updateSurvey: (field: keyof SurveyForm, value: string) => void;
+  updateWeight: (field: keyof WeightSettings, value: number) => void;
+  user: { name: string; email: string } | null;
+  weights: WeightSettings;
+}) {
+  return (
+    <>
+      <FlowStepper step={step} />
+      {step === 'login' && <LoginScreen isBusy={isBusy} login={login} />}
+      {step === 'survey' && (
+        <section className="flowSurface">
+          <div className="flowCopy">
+            <p className="eyebrow">Step 2</p>
+            <h2>현재의 나를 입력하세요</h2>
+            <p>프로토타입에서는 사용자가 작성한 텍스트와 사진 파일명을 기반으로 미래 자아를 생성합니다.</p>
+          </div>
+          <SurveyFormView
+            handleImage={handleImage}
+            setTargetYear={setTargetYear}
+            survey={survey}
+            targetYear={targetYear}
+            updateSurvey={updateSurvey}
+          />
+          <button className="primaryButton flowAction" type="button" onClick={startPersonaGeneration} disabled={isBusy || !user}>
+            <Sparkles size={18} />
+            미래 자아 생성
+          </button>
+        </section>
+      )}
+      {step === 'generating' && (
+        <section className="flowSurface waitingSurface">
+          <div className="loadingRing" />
+          <p className="eyebrow">Step 3</p>
+          <h2>페르소나를 생성하고 있어요</h2>
+          <p>현재 입력한 가치관, 습관, 목표, 고민을 구조화하고 미래 자아의 초안을 만드는 중입니다.</p>
+        </section>
+      )}
+      {step === 'weights' && (
+        <section className="flowSurface splitFlow">
+          <PersonaPreview selectedPersona={selectedPersona} />
+          <div>
+            <div className="flowCopy">
+              <p className="eyebrow">Step 4</p>
+              <h2>대화 성향을 조정하세요</h2>
+              <p>이 값은 생성된 미래 자아가 어떤 태도로 조언할지 결정합니다.</p>
+            </div>
+            <WeightControls goToChat={goToChat} isBusy={isBusy} updateWeight={updateWeight} weights={weights} />
+          </div>
+        </section>
+      )}
+      {step === 'chat' && (
+        <section className="flowSurface videoFlow" id="chat">
+          <VideoChatPanel
+            activeSession={activeSession}
+            chatInput={chatInput}
+            messages={messages}
+            sendMessage={sendMessage}
+            setChatInput={setChatInput}
+            selectedPersona={selectedPersona}
+            survey={survey}
+          />
+          <div className="flowFooter">
+            <Metric label="잔여 생성" value={`${credit?.remaining ?? 0}회`} />
+            <button className="softButton" type="button" onClick={() => setStep('survey')}>
+              설문 다시 작성
+            </button>
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+
+function DashboardView({
+  credit,
+  isBusy,
+  openPersonaChat,
+  personas,
+  selectedPersona,
+  startNewPersonaFlow,
+}: {
+  credit: CreditBalance | null;
+  isBusy: boolean;
+  openPersonaChat: (persona: Persona) => Promise<void>;
+  personas: Persona[];
+  selectedPersona?: Persona;
+  startNewPersonaFlow: () => void;
+}) {
+  const remainingCredits = credit?.remaining ?? 0;
+
+  return (
+    <div className="dashboardGrid">
+      <section className="surface dashboardPersonaList">
+        <div className="sectionHeader">
+          <div>
+            <p className="eyebrow">Persona list</p>
+            <h2>생성된 자아</h2>
+          </div>
+          <span className="sessionPill">{personas.length}개</span>
+        </div>
+
+        <div className="cards dashboardCards">
+          {personas.map((persona) => (
+            <button
+              className={persona.id === selectedPersona?.id ? 'personaCard selected' : 'personaCard'}
+              disabled={isBusy}
+              key={persona.id}
+              type="button"
+              onClick={() => openPersonaChat(persona)}
+            >
+              <span>{persona.targetYear}년 후</span>
+              <strong>{persona.title}</strong>
+              <small>{persona.summary}</small>
+              <small>
+                이상 {formatPercent(persona.weights.idealism)} · 커리어 {formatPercent(persona.weights.career)} · 직언{' '}
+                {formatPercent(persona.weights.directness)}
+              </small>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="surface dashboardCredit">
+        <div className="sectionHeader">
+          <div>
+            <p className="eyebrow">Credits</p>
+            <h2>잔여 생성 횟수</h2>
+          </div>
+          <CreditCard size={20} />
+        </div>
+        <div className="creditNumber">{remainingCredits}</div>
+        <p className="mutedText">미래 자아를 새로 생성할 수 있는 횟수입니다.</p>
+        <button
+          className="primaryButton dashboardAction"
+          disabled={isBusy || remainingCredits <= 0}
+          type="button"
+          onClick={startNewPersonaFlow}
+        >
+          <Sparkles size={18} />
+          새 미래 자아 만들기
+        </button>
+        {remainingCredits <= 0 && <p className="mutedText">잔여 횟수가 없어 새 플로우를 시작할 수 없습니다.</p>}
+      </section>
+    </div>
+  );
+}
+
+function LoginScreen({ isBusy, login }: { isBusy: boolean; login: (event: FormEvent<HTMLFormElement>) => Promise<void> }) {
+  return (
+    <section className="flowSurface loginScreen">
+      <div className="flowCopy">
+        <p className="eyebrow">Step 1</p>
+        <h2>Psyche에 입장하세요</h2>
+        <p>지금은 인증 API가 준비되기 전이라 입력값으로 mock 토큰을 발급합니다.</p>
+      </div>
+      <form className="loginCard" onSubmit={login}>
+        <label>
+          이메일
+          <input name="email" type="email" defaultValue="psyche@rookie.ai" />
+        </label>
+        <label>
+          비밀번호
+          <input name="password" type="password" defaultValue="psyche-demo" />
+        </label>
+        <button className="primaryButton" type="submit" disabled={isBusy}>
+          <LogIn size={18} />
+          로그인
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function SurveyFormView({
+  handleImage,
+  setTargetYear,
+  survey,
+  targetYear,
+  updateSurvey,
+}: {
+  handleImage: (file: File | null) => Promise<void>;
+  setTargetYear: (year: number) => void;
+  survey: SurveyForm;
+  targetYear: number;
+  updateSurvey: (field: keyof SurveyForm, value: string) => void;
+}) {
+  return (
+    <>
+      <div className="formGrid">
+        <label>
+          MBTI
+          <input value={survey.mbti} onChange={(event) => updateSurvey('mbti', event.target.value)} />
+        </label>
+        <label>
+          가치관
+          <input value={survey.values} onChange={(event) => updateSurvey('values', event.target.value)} />
+        </label>
+        <label>
+          생활 습관
+          <textarea value={survey.habits} onChange={(event) => updateSurvey('habits', event.target.value)} />
+        </label>
+        <label>
+          목표
+          <textarea value={survey.goals} onChange={(event) => updateSurvey('goals', event.target.value)} />
+        </label>
+        <label className="fullField">
+          현재 고민
+          <textarea value={survey.concerns} onChange={(event) => updateSurvey('concerns', event.target.value)} />
+        </label>
+      </div>
+
+      <div className="uploadRow">
+        <label className="uploadBox">
+          <Upload size={18} />
+          <span>{survey.imageFileName || '미래 얼굴 생성용 사진 업로드'}</span>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(event) => handleImage(event.target.files?.[0] ?? null)}
+          />
+          {survey.imagePreviewUrl && <img className="uploadPreview" src={survey.imagePreviewUrl} alt="업로드한 현재 얼굴" />}
+        </label>
+        <div className="yearPicker" role="group" aria-label="target year">
+          {[10, 20, 30].map((year) => (
+            <button
+              className={targetYear === year ? 'active' : ''}
+              key={year}
+              type="button"
+              onClick={() => setTargetYear(year)}
+            >
+              {year}년
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function PersonaPreview({
+  selectedPersona,
+}: {
+  selectedPersona?: Persona;
+}) {
+  return (
+    <section className="surface portraitSurface">
+      <div className="portraitFrame">
+        <img src={selectedPersona?.imageUrl ?? '/future-portrait.svg'} alt="future self" />
+      </div>
+      <h2>{selectedPersona?.title ?? '미래 자아'}</h2>
+      <p>{selectedPersona?.summary ?? '설문과 가중치를 기반으로 생성됩니다.'}</p>
+    </section>
+  );
+}
+
+function WeightControls({
+  goToChat,
+  isBusy,
+  updateWeight,
+  weights,
+}: {
+  goToChat: () => Promise<void>;
+  isBusy: boolean;
+  updateWeight: (field: keyof WeightSettings, value: number) => void;
+  weights: WeightSettings;
+}) {
+  return (
+    <div className="weightPanel">
+      <Slider label="이상적 미래" value={weights.idealism} onChange={(value) => updateWeight('idealism', value)} />
+      <Slider label="커리어 비중" value={weights.career} onChange={(value) => updateWeight('career', value)} />
+      <Slider label="직언 성향" value={weights.directness} onChange={(value) => updateWeight('directness', value)} />
+      <button className="primaryButton flowAction" type="button" onClick={goToChat} disabled={isBusy}>
+        <Video size={18} />
+        대화 시작
+      </button>
+    </div>
+  );
+}
+
+function VideoChatPanel({
+  activeSession,
+  chatInput,
+  messages,
+  sendMessage,
+  setChatInput,
+  selectedPersona,
+  survey,
+}: {
+  activeSession: string;
+  chatInput: string;
+  messages: ChatMessage[];
+  sendMessage: () => Promise<void>;
+  setChatInput: (value: string) => void;
+  selectedPersona?: Persona;
+  survey: SurveyForm;
+}) {
+  return (
+    <div className="videoCallPanel">
+      <div className="videoCallHeader">
+        <div>
+          <p className="eyebrow">Future conversation</p>
+          <h2>미래의 나와 영상통화</h2>
+        </div>
+        <span className="sessionPill">{activeSession ? 'video mock connected' : 'ready'}</span>
+      </div>
+
+      <div className="videoGrid">
+        <FutureVideoTile
+          imageUrl={selectedPersona?.imageUrl ?? '/future-portrait.svg'}
+          label="미래의 나"
+          title={selectedPersona?.title ?? '미래 자아'}
+        />
+        <CurrentCameraTile
+          label="현재의 나"
+          title={survey.mbti ? `${survey.mbti} 현재 자아` : '현재의 나'}
+        />
+      </div>
+
+      <div className="captionLog">
+        {messages.length === 0 && <div className="emptyChat">아직 저장된 대화가 없습니다.</div>}
+        {messages.map((message) => (
+          <div className={`message ${message.speaker}`} key={message.id}>
+            {message.message}
+          </div>
+        ))}
+      </div>
+
+      <div className="composer">
+        <input value={chatInput} onChange={(event) => setChatInput(event.target.value)} />
+        <button className="iconButton primaryIcon" type="button" aria-label="send" onClick={sendMessage}>
+          <Send size={18} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FutureVideoTile({ imageUrl, label, title }: { imageUrl: string; label: string; title: string }) {
+  return (
+    <div className="videoTile futureTile">
+      <img src={imageUrl} alt={label} />
+      <div className="aiStreamBadge">AI video mock</div>
+      <div className="videoNameplate">
+        <span>{label}</span>
+        <strong>{title}</strong>
+      </div>
+    </div>
+  );
+}
+
+function CurrentCameraTile({ label, title }: { label: string; title: string }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [cameraState, setCameraState] = useState<'loading' | 'ready' | 'blocked'>('loading');
+
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+
+    const connectCamera = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+        setCameraState('ready');
+      } catch {
+        setCameraState('blocked');
+      }
+    };
+
+    connectCamera();
+
+    return () => {
+      stream?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  return (
+    <div className="videoTile cameraTile">
+      <video ref={videoRef} autoPlay muted playsInline />
+      {cameraState !== 'ready' && (
+        <div className="cameraFallback">
+          <Camera size={30} />
+          <span>{cameraState === 'loading' ? '카메라 연결 중' : '카메라 권한이 필요합니다'}</span>
+        </div>
+      )}
+      <div className="videoNameplate">
+        <span>{label}</span>
+        <strong>{title}</strong>
+      </div>
+    </div>
+  );
+}
+
+function FlowStepper({ step }: { step: FlowStep }) {
+  const activeIndex = flowSteps.findIndex((item) => item.id === step);
+
+  return (
+    <ol className="flowStepper">
+      {flowSteps.map((item, index) => (
+        <li className={index <= activeIndex ? 'complete' : ''} key={item.id}>
+          <span>{index + 1}</span>
+          {item.label}
+        </li>
+      ))}
+    </ol>
   );
 }
 

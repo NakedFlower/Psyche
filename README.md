@@ -11,11 +11,11 @@ Psyche MVP front-end prototype based on the challenge proposal and the Notion AP
 ## Product Flow
 
 1. Login
-2. Survey profile entry with voice STT mock and image upload mock
-3. Scenario weight controls: idealism, career, directness
-4. Future persona generation and persona list
+2. Text survey profile entry and source face image upload
+3. Future persona generation waiting step
+4. Conversation weight controls: idealism, career, directness
 5. Voice/video session mock with chat log persistence mock
-6. Credit balance and premium unlock mock
+6. Dashboard for generated persona list and remaining generation credits
 
 ## API Mapping
 
@@ -27,7 +27,6 @@ The mock layer follows the Notion API spec:
 - `POST /api/v1/auth/logout`
 - `POST /api/v1/surveys`
 - `POST /api/v1/surveys/image`
-- `POST /api/v1/surveys/stt`
 - `POST /api/v1/personas/generate`
 - `PATCH /api/v1/personas/{id}/weights`
 - `GET /api/v1/personas`

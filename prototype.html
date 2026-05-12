@@ -26,8 +26,6 @@
           <div class="panelTitle">Mock API</div>
           <div class="endpoint"><span>POST</span><code>/api/v1/auth/login</code></div>
           <div class="endpoint"><span>POST</span><code>/api/v1/surveys</code></div>
-          <div class="endpoint"><span>POST</span><code>/api/v1/surveys/image</code></div>
-          <div class="endpoint"><span>POST</span><code>/api/v1/surveys/stt</code></div>
           <div class="endpoint"><span>POST</span><code>/api/v1/personas/generate</code></div>
           <div class="endpoint"><span>PATCH</span><code>/api/v1/personas/{id}/weights</code></div>
           <div class="endpoint"><span>POST</span><code>/api/v1/chats/session</code></div>
@@ -62,21 +60,15 @@
                 <p class="eyebrow">Survey data</p>
                 <h2>사용자 프로파일</h2>
               </div>
-              <button class="softButton" type="button" id="voiceButton">음성 변환</button>
             </div>
             <div class="formGrid">
               <label>MBTI<input id="mbti" value="INFJ" /></label>
               <label>가치관<input id="values" value="성장, 안정, 관계" /></label>
               <label>생활 습관<textarea id="habits">늦게 자고 몰아서 일하지만 기록은 꾸준히 남긴다.</textarea></label>
               <label>목표<textarea id="goals">3년 안에 제품을 끝까지 책임지는 프론트엔드 개발자가 된다.</textarea></label>
-              <label>현재 고민<textarea id="concerns">진로 선택이 늦은 것 같고 번아웃이 반복될까 봐 걱정된다.</textarea></label>
-              <label>STT 결과<textarea id="voiceTranscript" placeholder="음성 설문 변환 결과"></textarea></label>
+              <label class="fullField">현재 고민<textarea id="concerns">진로 선택이 늦은 것 같고 번아웃이 반복될까 봐 걱정된다.</textarea></label>
             </div>
             <div class="uploadRow">
-              <label class="uploadBox">
-                <span id="uploadName">현재 사진 3장 업로드</span>
-                <input type="file" accept="image/*" multiple id="imageInput" />
-              </label>
               <div class="yearPicker" role="group" aria-label="target year">
                 <button class="active" type="button" data-year="10">10년</button>
                 <button type="button" data-year="20">20년</button>
@@ -104,11 +96,6 @@
           <section class="surface portraitSurface">
             <div class="portraitFrame">
               <img id="portrait" src="./public/future-portrait.svg" alt="future self" />
-              <div class="callControls">
-                <button class="iconButton" type="button" id="voiceCall">☎</button>
-                <button class="iconButton primaryIcon" type="button" id="videoCall">▶</button>
-                <button class="iconButton" type="button">◎</button>
-              </div>
             </div>
             <h2 id="personaTitle">10년 후, 또렷한 실행가</h2>
             <p id="personaSummary">커리어의 밀도가 높고 매일의 루틴이 안정된 미래 자아입니다.</p>
@@ -242,14 +229,6 @@
         document.getElementById(id).addEventListener('input', renderWeights);
       });
 
-      $('#voiceButton').addEventListener('click', () => {
-        $('#voiceTranscript').value = '요즘 커리어 방향이 가장 큰 고민이고, 꾸준한 운동과 기록 습관을 만들고 싶어요.';
-      });
-
-      $('#imageInput').addEventListener('change', (event) => {
-        $('#uploadName').textContent = event.target.files[0]?.name || '현재 사진 3장 업로드';
-      });
-
       $('#generateButton').addEventListener('click', () => {
         const current = weights();
         const tone = current.directness >= 0.5 ? '직언형' : '격려형';
@@ -272,13 +251,6 @@
         const persona = state.personas.find((item) => item.id === state.selectedId);
         if (persona) persona.weights = weights();
         renderPersonas();
-      });
-
-      ['voiceCall', 'videoCall'].forEach((id) => {
-        document.getElementById(id).addEventListener('click', () => {
-          $('#sessionMetric').textContent = '연결됨';
-          $('#sessionPill').textContent = 'streaming mock';
-        });
       });
 
       $('#sendButton').addEventListener('click', () => {
