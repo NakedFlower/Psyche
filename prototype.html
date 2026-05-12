@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Psyche Prototype</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <main class="appShell">
+      <aside class="sidebar">
+        <div class="brandBlock">
+          <div class="brandMark">P</div>
+          <div>
+            <strong>Psyche</strong>
+            <span>future self studio</span>
+          </div>
+        </div>
+        <nav class="navList" aria-label="Psyche sections">
+          <a href="#survey">설문</a>
+          <a href="#persona">페르소나</a>
+          <a href="#chat">대화</a>
+          <a href="#credits">크레딧</a>
+        </nav>
+        <section class="apiPanel" aria-label="API mock map">
+          <div class="panelTitle">Mock API</div>
+          <div class="endpoint"><span>POST</span><code>/api/v1/auth/login</code></div>
+          <div class="endpoint"><span>POST</span><code>/api/v1/surveys</code></div>
+          <div class="endpoint"><span>POST</span><code>/api/v1/surveys/image</code></div>
+          <div class="endpoint"><span>POST</span><code>/api/v1/surveys/stt</code></div>
+          <div class="endpoint"><span>POST</span><code>/api/v1/personas/generate</code></div>
+          <div class="endpoint"><span>PATCH</span><code>/api/v1/personas/{id}/weights</code></div>
+          <div class="endpoint"><span>POST</span><code>/api/v1/chats/session</code></div>
+          <div class="endpoint"><span>GET</span><code>/api/v1/credits/balance</code></div>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">MVP prototype</p>
+            <h1>미래 자아 생성 워크스페이스</h1>
+          </div>
+          <form class="loginForm" id="loginForm">
+            <input name="email" type="email" value="psyche@rookie.ai" aria-label="email" />
+            <input name="password" type="password" value="psyche-demo" aria-label="password" />
+            <button class="iconButton" type="submit" aria-label="login">IN</button>
+          </form>
+        </header>
+
+        <section class="statusStrip">
+          <div class="metric"><span>생성 가능</span><strong id="creditCount">3회</strong></div>
+          <div class="metric"><span>선택 연도</span><strong id="targetMetric">10년 후</strong></div>
+          <div class="metric"><span>페르소나</span><strong id="personaCount">2개</strong></div>
+          <div class="metric"><span>세션</span><strong id="sessionMetric">대기</strong></div>
+        </section>
+
+        <div class="mainGrid">
+          <section class="surface wide" id="survey">
+            <div class="sectionHeader">
+              <div>
+                <p class="eyebrow">Survey data</p>
+                <h2>사용자 프로파일</h2>
+              </div>
+              <button class="softButton" type="button" id="voiceButton">음성 변환</button>
+            </div>
+            <div class="formGrid">
+              <label>MBTI<input id="mbti" value="INFJ" /></label>
+              <label>가치관<input id="values" value="성장, 안정, 관계" /></label>
+              <label>생활 습관<textarea id="habits">늦게 자고 몰아서 일하지만 기록은 꾸준히 남긴다.</textarea></label>
+              <label>목표<textarea id="goals">3년 안에 제품을 끝까지 책임지는 프론트엔드 개발자가 된다.</textarea></label>
+              <label>현재 고민<textarea id="concerns">진로 선택이 늦은 것 같고 번아웃이 반복될까 봐 걱정된다.</textarea></label>
+              <label>STT 결과<textarea id="voiceTranscript" placeholder="음성 설문 변환 결과"></textarea></label>
+            </div>
+            <div class="uploadRow">
+              <label class="uploadBox">
+                <span id="uploadName">현재 사진 3장 업로드</span>
+                <input type="file" accept="image/*" multiple id="imageInput" />
+              </label>
+              <div class="yearPicker" role="group" aria-label="target year">
+                <button class="active" type="button" data-year="10">10년</button>
+                <button type="button" data-year="20">20년</button>
+                <button type="button" data-year="30">30년</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="surface" id="persona">
+            <div class="sectionHeader">
+              <div>
+                <p class="eyebrow">Scenario weights</p>
+                <h2>가중치</h2>
+              </div>
+            </div>
+            <label class="sliderControl"><span>이상적 미래<strong id="idealLabel">62%</strong></span><input id="idealism" type="range" min="0" max="1" step="0.01" value="0.62" /></label>
+            <label class="sliderControl"><span>커리어 비중<strong id="careerLabel">58%</strong></span><input id="career" type="range" min="0" max="1" step="0.01" value="0.58" /></label>
+            <label class="sliderControl"><span>직언 성향<strong id="directLabel">36%</strong></span><input id="directness" type="range" min="0" max="1" step="0.01" value="0.36" /></label>
+            <div class="buttonRow">
+              <button class="primaryButton" type="button" id="generateButton">생성</button>
+              <button class="softButton" type="button" id="applyButton">반영</button>
+            </div>
+          </section>
+
+          <section class="surface portraitSurface">
+            <div class="portraitFrame">
+              <img id="portrait" src="./public/future-portrait.svg" alt="future self" />
+              <div class="callControls">
+                <button class="iconButton" type="button" id="voiceCall">☎</button>
+                <button class="iconButton primaryIcon" type="button" id="videoCall">▶</button>
+                <button class="iconButton" type="button">◎</button>
+              </div>
+            </div>
+            <h2 id="personaTitle">10년 후, 또렷한 실행가</h2>
+            <p id="personaSummary">커리어의 밀도가 높고 매일의 루틴이 안정된 미래 자아입니다.</p>
+          </section>
+
+          <section class="surface wide personaList">
+            <div class="sectionHeader">
+              <div>
+                <p class="eyebrow">Persona list</p>
+                <h2>생성 기록</h2>
+              </div>
+            </div>
+            <div class="cards" id="personaCards"></div>
+          </section>
+
+          <section class="surface wide" id="chat">
+            <div class="sectionHeader">
+              <div>
+                <p class="eyebrow">Future conversation</p>
+                <h2>대화 로그</h2>
+              </div>
+              <span class="sessionPill" id="sessionPill">ready</span>
+            </div>
+            <div class="chatLog" id="chatLog"><div class="emptyChat">아직 저장된 대화가 없습니다.</div></div>
+            <div class="composer">
+              <input id="chatInput" value="요즘 진로가 불안해. 지금 무엇부터 바꿔야 할까?" />
+              <button class="iconButton primaryIcon" type="button" id="sendButton">→</button>
+            </div>
+          </section>
+
+          <section class="surface" id="credits">
+            <div class="sectionHeader">
+              <div>
+                <p class="eyebrow">Payment</p>
+                <h2>권한</h2>
+              </div>
+            </div>
+            <div class="creditNumber" id="creditNumber">3</div>
+            <p class="mutedText">잔여 생성 횟수</p>
+            <div class="buttonColumn">
+              <button class="softButton" type="button" id="unlockVoice">음성 설문 해제</button>
+              <button class="softButton" type="button" id="unlockWeight">가중치 조정 해제</button>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const state = {
+        targetYear: 10,
+        credits: 3,
+        selectedId: 'persona-10-career',
+        personas: [
+          {
+            id: 'persona-10-career',
+            year: 10,
+            title: '10년 후, 또렷한 실행가',
+            summary: '커리어의 밀도가 높고 매일의 루틴이 안정된 미래 자아입니다.',
+            weights: { idealism: 0.68, career: 0.78, directness: 0.42 },
+          },
+          {
+            id: 'persona-20-balance',
+            year: 20,
+            title: '20년 후, 균형 잡힌 조언자',
+            summary: '관계, 건강, 일의 균형을 중심에 둔 차분한 미래 자아입니다.',
+            weights: { idealism: 0.52, career: 0.38, directness: 0.28 },
+          },
+        ],
+      };
+
+      const percent = (value) => `${Math.round(value * 100)}%`;
+      const $ = (selector) => document.querySelector(selector);
+
+      function weights() {
+        return {
+          idealism: Number($('#idealism').value),
+          career: Number($('#career').value),
+          directness: Number($('#directness').value),
+        };
+      }
+
+      function renderWeights() {
+        const current = weights();
+        $('#idealLabel').textContent = percent(current.idealism);
+        $('#careerLabel').textContent = percent(current.career);
+        $('#directLabel').textContent = percent(current.directness);
+      }
+
+      function selectPersona(id) {
+        state.selectedId = id;
+        const persona = state.personas.find((item) => item.id === id);
+        if (!persona) return;
+        $('#personaTitle').textContent = persona.title;
+        $('#personaSummary').textContent = persona.summary;
+        $('#idealism').value = persona.weights.idealism;
+        $('#career').value = persona.weights.career;
+        $('#directness').value = persona.weights.directness;
+        renderWeights();
+        renderPersonas();
+      }
+
+      function renderPersonas() {
+        $('#personaCards').innerHTML = state.personas
+          .map(
+            (persona) => `
+              <button class="personaCard ${persona.id === state.selectedId ? 'selected' : ''}" type="button" data-persona="${persona.id}">
+                <span>${persona.year}년 후</span>
+                <strong>${persona.title}</strong>
+                <small>이상 ${percent(persona.weights.idealism)} · 커리어 ${percent(persona.weights.career)} · 직언 ${percent(persona.weights.directness)}</small>
+              </button>
+            `,
+          )
+          .join('');
+        document.querySelectorAll('[data-persona]').forEach((button) => {
+          button.addEventListener('click', () => selectPersona(button.dataset.persona));
+        });
+        $('#personaCount').textContent = `${state.personas.length}개`;
+      }
+
+      document.querySelectorAll('.yearPicker button').forEach((button) => {
+        button.addEventListener('click', () => {
+          state.targetYear = Number(button.dataset.year);
+          document.querySelectorAll('.yearPicker button').forEach((item) => item.classList.remove('active'));
+          button.classList.add('active');
+          $('#targetMetric').textContent = `${state.targetYear}년 후`;
+        });
+      });
+
+      ['idealism', 'career', 'directness'].forEach((id) => {
+        document.getElementById(id).addEventListener('input', renderWeights);
+      });
+
+      $('#voiceButton').addEventListener('click', () => {
+        $('#voiceTranscript').value = '요즘 커리어 방향이 가장 큰 고민이고, 꾸준한 운동과 기록 습관을 만들고 싶어요.';
+      });
+
+      $('#imageInput').addEventListener('change', (event) => {
+        $('#uploadName').textContent = event.target.files[0]?.name || '현재 사진 3장 업로드';
+      });
+
+      $('#generateButton').addEventListener('click', () => {
+        const current = weights();
+        const tone = current.directness >= 0.5 ? '직언형' : '격려형';
+        const focus = current.career >= 0.5 ? '커리어 중심' : '일상 중심';
+        const persona = {
+          id: `persona-${Date.now()}`,
+          year: state.targetYear,
+          title: `${state.targetYear}년 후, ${focus} ${tone} 자아`,
+          summary: `${$('#goals').value}를 기준으로 선택의 결과를 되짚어 주는 페르소나입니다.`,
+          weights: current,
+        };
+        state.personas.unshift(persona);
+        state.credits = Math.max(state.credits - 1, 0);
+        $('#creditCount').textContent = `${state.credits}회`;
+        $('#creditNumber').textContent = state.credits;
+        selectPersona(persona.id);
+      });
+
+      $('#applyButton').addEventListener('click', () => {
+        const persona = state.personas.find((item) => item.id === state.selectedId);
+        if (persona) persona.weights = weights();
+        renderPersonas();
+      });
+
+      ['voiceCall', 'videoCall'].forEach((id) => {
+        document.getElementById(id).addEventListener('click', () => {
+          $('#sessionMetric').textContent = '연결됨';
+          $('#sessionPill').textContent = 'streaming mock';
+        });
+      });
+
+      $('#sendButton').addEventListener('click', () => {
+        const input = $('#chatInput');
+        if (!input.value.trim()) return;
+        const reply = input.value.includes('불안') || input.value.includes('고민')
+          ? '불안은 신호야. 지금 바꿀 수 있는 작은 행동 하나를 정하고, 오늘 끝내자.'
+          : '지금의 선택은 생각보다 오래 남아. 네가 반복하는 하루가 결국 나를 만들었어.';
+        $('#chatLog').innerHTML += `<div class="message user">${input.value}</div><div class="message future">${reply}</div>`;
+        input.value = '';
+        $('#chatLog').scrollTop = $('#chatLog').scrollHeight;
+      });
+
+      $('#loginForm').addEventListener('submit', (event) => {
+        event.preventDefault();
+        event.currentTarget.outerHTML = '<div class="userBadge"><span>서우</span><small>psyche@rookie.ai</small></div>';
+      });
+
+      $('#unlockVoice').addEventListener('click', () => ($('#unlockVoice').textContent = '음성 설문 사용 가능'));
+      $('#unlockWeight').addEventListener('click', () => ($('#unlockWeight').textContent = '가중치 조정 사용 가능'));
+
+      renderWeights();
+      renderPersonas();
+    </script>
+  </body>
+</html>

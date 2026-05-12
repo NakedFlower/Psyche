@@ -1,16 +1,49 @@
-# React + Vite
+# Psyche Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Psyche MVP front-end prototype based on the challenge proposal and the Notion API spec.
 
-Currently, two official plugins are available:
+## Current Prototype
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- `prototype.html` is a no-build clickable prototype that can be opened directly in a browser.
+- React/Vite source lives in `src/` and mirrors the same flow for the production front-end.
+- Backend and AI calls are temporarily mocked in `src/api/mockApi.ts`.
 
-## React Compiler
+## Product Flow
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+1. Login
+2. Survey profile entry with voice STT mock and image upload mock
+3. Scenario weight controls: idealism, career, directness
+4. Future persona generation and persona list
+5. Voice/video session mock with chat log persistence mock
+6. Credit balance and premium unlock mock
 
-## Expanding the ESLint configuration
+## API Mapping
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+The mock layer follows the Notion API spec:
+
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+- `POST /api/v1/auth/social/kakao`
+- `POST /api/v1/auth/logout`
+- `POST /api/v1/surveys`
+- `POST /api/v1/surveys/image`
+- `POST /api/v1/surveys/stt`
+- `POST /api/v1/personas/generate`
+- `PATCH /api/v1/personas/{id}/weights`
+- `GET /api/v1/personas`
+- `POST /api/v1/chats/session`
+- `POST /api/v1/chats/{id}/logs`
+- `POST /api/v1/chats/{id}/recording`
+- `GET /api/v1/credits/balance`
+- `POST /api/v1/payments/unlock`
+
+## React Setup
+
+When Node package tooling is available:
+
+```bash
+npm install
+npm run dev
+```
+
+Replace `src/api/mockApi.ts` with a real HTTP client once the backend is ready.
