@@ -1,9 +1,11 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowDown,
   BadgeCheck,
   Camera,
   CreditCard,
   LogIn,
+  Maximize2,
   Send,
   Sparkles,
   Upload,
@@ -11,7 +13,7 @@ import {
 import { api } from './api/mockApi';
 import type { ChatMessage, CreditBalance, Persona, SurveyForm, WeightSettings } from './types';
 
-type AppView = 'flow' | 'dashboard';
+type AppView = 'landing' | 'flow' | 'dashboard';
 type FlowStep = 'login' | 'survey' | 'generating' | 'weights' | 'chat';
 
 const initialSurvey: SurveyForm = {
@@ -50,7 +52,7 @@ const flowSteps: Array<{ id: FlowStep; label: string }> = [
 const formatPercent = (value: number) => `${Math.round(value * 100)}%`;
 
 export function App() {
-  const [view, setView] = useState<AppView>('flow');
+  const [view, setView] = useState<AppView>('landing');
   const [step, setStep] = useState<FlowStep>('login');
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
   const [survey, setSurvey] = useState<SurveyForm>(initialSurvey);
@@ -157,6 +159,15 @@ export function App() {
     setChatInput('요즘 진로가 불안해. 지금 무엇부터 바꿔야 할까?');
   };
 
+  const enterApp = () => {
+    setView('flow');
+    setStep(user ? 'survey' : 'login');
+  };
+
+  if (view === 'landing') {
+    return <LandingPage onEnter={enterApp} />;
+  }
+
   return (
     <main className="appShell">
       <aside className="sidebar">
@@ -209,7 +220,6 @@ export function App() {
 
         {view === 'flow' ? (
           <FlowView
-            activeSession={activeSession}
             chatInput={chatInput}
             credit={credit}
             isBusy={isBusy}
@@ -245,8 +255,124 @@ export function App() {
   );
 }
 
+function LandingPage({ onEnter }: { onEnter: () => void }) {
+  useEffect(() => {
+    const revealItems = document.querySelectorAll<HTMLElement>('[data-reveal]');
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('isVisible');
+          } else {
+            entry.target.classList.remove('isVisible');
+          }
+        });
+      },
+      { threshold: 0.28 },
+    );
+
+    revealItems.forEach((item) => observer.observe(item));
+
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const landingPage = document.querySelector<HTMLElement>('.landingPage');
+    const sections = Array.from(document.querySelectorAll<HTMLElement>('.landingSection'));
+    let activeIndex = 0;
+    let isLocked = false;
+
+    const moveToSection = (direction: number) => {
+      const nextIndex = Math.min(Math.max(activeIndex + direction, 0), sections.length - 1);
+      if (nextIndex === activeIndex) return;
+      activeIndex = nextIndex;
+      sections[activeIndex].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+
+    const handleWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) < 12) return;
+      event.preventDefault();
+      if (isLocked) return;
+      isLocked = true;
+      moveToSection(event.deltaY > 0 ? 1 : -1);
+      window.setTimeout(() => {
+        isLocked = false;
+      }, 820);
+    };
+
+    landingPage?.addEventListener('wheel', handleWheel, { passive: false });
+
+    return () => landingPage?.removeEventListener('wheel', handleWheel);
+  }, []);
+
+  return (
+    <main className="landingPage">
+      <section className="landingHero landingSection">
+        <div className="landingNav" data-reveal>
+          <div className="brandBlock">
+            <div className="brandMark">P</div>
+            <div>
+              <strong>Psyche</strong>
+              <span>future self studio</span>
+            </div>
+          </div>
+          <button className="softButton" type="button" onClick={onEnter}>
+            시작하기
+          </button>
+        </div>
+
+        <div className="heroCopy">
+          <p className="eyebrow" data-reveal>Future self simulation</p>
+          <h1 data-reveal>Psyche</h1>
+          <p data-reveal>지금의 선택이 만든 미래의 나와 마주 보고 대화합니다.</p>
+        </div>
+
+        <div className="heroVisual" aria-hidden="true" data-reveal>
+          <img src="/future-portrait.svg" alt="" />
+        </div>
+
+        <a className="scrollCue" href="#landing-story" aria-label="scroll to story" data-reveal>
+          <ArrowDown size={20} />
+        </a>
+      </section>
+
+      <section className="landingPanel landingSection" id="landing-story">
+        <p className="eyebrow" data-reveal>01</p>
+        <h2 data-reveal>막연한 미래를 얼굴이 있는 대화로 바꿉니다.</h2>
+        <p data-reveal>
+          가치관, 습관, 목표, 고민을 입력하면 Psyche는 미래 자아의 성격과 조언 방식을 구성합니다.
+        </p>
+      </section>
+
+      <section className="landingPanel landingSection alignRight">
+        <p className="eyebrow" data-reveal>02</p>
+        <h2 data-reveal>10년, 20년, 30년 후의 나를 선택합니다.</h2>
+        <p data-reveal>
+          업로드한 얼굴과 현재의 데이터를 기반으로 각 시점의 미래 자아를 만들고, 서로 다른 가능성을 비교합니다.
+        </p>
+      </section>
+
+      <section className="landingPanel landingSection">
+        <p className="eyebrow" data-reveal>03</p>
+        <h2 data-reveal>대화의 온도까지 직접 조정합니다.</h2>
+        <p data-reveal>
+          이상과 현실, 커리어와 일상, 격려와 직언 사이의 가중치를 조절해 지금 필요한 조언을 만듭니다.
+        </p>
+      </section>
+
+      <section className="landingFinal landingSection">
+        <p className="eyebrow" data-reveal>Begin</p>
+        <h2 data-reveal>미래의 나를 만나볼 준비가 되었다면</h2>
+        <button className="primaryButton landingCta" type="button" onClick={onEnter} data-reveal>
+          <LogIn size={18} />
+          로그인하여 참여하기
+        </button>
+      </section>
+    </main>
+  );
+}
+
 function FlowView({
-  activeSession,
   chatInput,
   credit,
   handleImage,
@@ -267,7 +393,6 @@ function FlowView({
   user,
   weights,
 }: {
-  activeSession: string;
   chatInput: string;
   credit: CreditBalance | null;
   handleImage: (file: File | null) => Promise<void>;
@@ -341,7 +466,6 @@ function FlowView({
       {step === 'chat' && (
         <section className="flowSurface videoFlow" id="chat">
           <VideoChatPanel
-            activeSession={activeSession}
             chatInput={chatInput}
             messages={messages}
             sendMessage={sendMessage}
@@ -571,7 +695,6 @@ function WeightControls({
 }
 
 function VideoChatPanel({
-  activeSession,
   chatInput,
   messages,
   sendMessage,
@@ -579,7 +702,6 @@ function VideoChatPanel({
   selectedPersona,
   survey,
 }: {
-  activeSession: string;
   chatInput: string;
   messages: ChatMessage[];
   sendMessage: () => Promise<void>;
@@ -587,6 +709,12 @@ function VideoChatPanel({
   selectedPersona?: Persona;
   survey: SurveyForm;
 }) {
+  const fullscreenRef = useRef<HTMLDivElement | null>(null);
+
+  const openFullscreen = async () => {
+    await fullscreenRef.current?.requestFullscreen();
+  };
+
   return (
     <div className="videoCallPanel">
       <div className="videoCallHeader">
@@ -594,19 +722,24 @@ function VideoChatPanel({
           <p className="eyebrow">Future conversation</p>
           <h2>미래의 나와 영상통화</h2>
         </div>
-        <span className="sessionPill">{activeSession ? 'video mock connected' : 'ready'}</span>
+        <button className="softButton" type="button" onClick={openFullscreen}>
+          <Maximize2 size={17} />
+          전체화면
+        </button>
       </div>
 
-      <div className="videoGrid">
-        <FutureVideoTile
-          imageUrl={selectedPersona?.imageUrl ?? '/future-portrait.svg'}
-          label="미래의 나"
-          title={selectedPersona?.title ?? '미래 자아'}
-        />
-        <CurrentCameraTile
-          label="현재의 나"
-          title={survey.mbti ? `${survey.mbti} 현재 자아` : '현재의 나'}
-        />
+      <div className="fullscreenStage" ref={fullscreenRef}>
+        <div className="videoGrid">
+          <FutureVideoTile
+            imageUrl={selectedPersona?.imageUrl ?? '/future-portrait.svg'}
+            label="미래의 나"
+            title={selectedPersona?.title ?? '미래 자아'}
+          />
+          <CurrentCameraTile
+            label="현재의 나"
+            title={survey.mbti ? `${survey.mbti} 현재 자아` : '현재의 나'}
+          />
+        </div>
       </div>
 
       <div className="captionLog">
