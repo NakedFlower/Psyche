@@ -7,7 +7,6 @@ import {
   Send,
   Sparkles,
   Upload,
-  Video,
 } from 'lucide-react';
 import { api } from './api/mockApi';
 import type { ChatMessage, CreditBalance, Persona, SurveyForm, WeightSettings } from './types';
@@ -43,8 +42,8 @@ const endpoints = [
 const flowSteps: Array<{ id: FlowStep; label: string }> = [
   { id: 'login', label: '로그인' },
   { id: 'survey', label: '설문' },
-  { id: 'generating', label: '생성 대기' },
   { id: 'weights', label: '가중치' },
+  { id: 'generating', label: '생성 대기' },
   { id: 'chat', label: '대화' },
 ];
 
@@ -114,34 +113,13 @@ export function App() {
     await api.saveSurvey(survey);
     const persona = await api.generatePersona(targetYear, weights);
     const [personaList, balance] = await Promise.all([api.listPersonas(), api.getCreditBalance()]);
+    const session = await api.startChatSession(persona.id, 'video');
     setPersonas(personaList);
     setSelectedPersonaId(persona.id);
     setCredit(balance);
-    setIsBusy(false);
-    setStep('weights');
-  };
-
-  const syncWeights = async () => {
-    if (!selectedPersona) return;
-    setIsBusy(true);
-    const updatedPersona = await api.updateWeights(selectedPersona.id, weights);
-    setPersonas(await api.listPersonas());
-    setSelectedPersonaId(updatedPersona.id);
-    setIsBusy(false);
-  };
-
-  const goToChat = async () => {
-    await syncWeights();
-    await startSession('video');
-    setStep('chat');
-  };
-
-  const startSession = async (mode: 'video' | 'voice') => {
-    if (!selectedPersona) return;
-    setIsBusy(true);
-    const session = await api.startChatSession(selectedPersona.id, mode);
     setActiveSession(session.id);
     setIsBusy(false);
+    setStep('chat');
   };
 
   const sendMessage = async () => {
@@ -251,7 +229,6 @@ export function App() {
             user={user}
             weights={weights}
             updateWeight={updateWeight}
-            goToChat={goToChat}
           />
         ) : (
           <DashboardView
@@ -272,7 +249,6 @@ function FlowView({
   activeSession,
   chatInput,
   credit,
-  goToChat,
   handleImage,
   isBusy,
   login,
@@ -294,7 +270,6 @@ function FlowView({
   activeSession: string;
   chatInput: string;
   credit: CreditBalance | null;
-  goToChat: () => Promise<void>;
   handleImage: (file: File | null) => Promise<void>;
   isBusy: boolean;
   login: (event: FormEvent<HTMLFormElement>) => Promise<void>;
@@ -331,18 +306,9 @@ function FlowView({
             targetYear={targetYear}
             updateSurvey={updateSurvey}
           />
-          <button className="primaryButton flowAction" type="button" onClick={startPersonaGeneration} disabled={isBusy || !user}>
-            <Sparkles size={18} />
-            미래 자아 생성
+          <button className="primaryButton flowAction" type="button" onClick={() => setStep('weights')} disabled={isBusy || !user}>
+            다음
           </button>
-        </section>
-      )}
-      {step === 'generating' && (
-        <section className="flowSurface waitingSurface">
-          <div className="loadingRing" />
-          <p className="eyebrow">Step 3</p>
-          <h2>페르소나를 생성하고 있어요</h2>
-          <p>현재 입력한 가치관, 습관, 목표, 고민을 구조화하고 미래 자아의 초안을 만드는 중입니다.</p>
         </section>
       )}
       {step === 'weights' && (
@@ -350,12 +316,26 @@ function FlowView({
           <PersonaPreview selectedPersona={selectedPersona} />
           <div>
             <div className="flowCopy">
-              <p className="eyebrow">Step 4</p>
+              <p className="eyebrow">Step 3</p>
               <h2>대화 성향을 조정하세요</h2>
-              <p>이 값은 생성된 미래 자아가 어떤 태도로 조언할지 결정합니다.</p>
+              <p>이 값은 미래 자아 생성과 대화 말투에 함께 반영됩니다.</p>
             </div>
-            <WeightControls goToChat={goToChat} isBusy={isBusy} updateWeight={updateWeight} weights={weights} />
+            <WeightControls
+              canGenerate={(credit?.remaining ?? 0) > 0}
+              isBusy={isBusy}
+              onGenerate={startPersonaGeneration}
+              updateWeight={updateWeight}
+              weights={weights}
+            />
           </div>
+        </section>
+      )}
+      {step === 'generating' && (
+        <section className="flowSurface waitingSurface">
+          <div className="loadingRing" />
+          <p className="eyebrow">Step 4</p>
+          <h2>페르소나를 생성하고 있어요</h2>
+          <p>설문, 사진, 가중치를 바탕으로 미래 자아와 영상 대화 세션을 준비하는 중입니다.</p>
         </section>
       )}
       {step === 'chat' && (
@@ -564,13 +544,15 @@ function PersonaPreview({
 }
 
 function WeightControls({
-  goToChat,
+  canGenerate,
   isBusy,
+  onGenerate,
   updateWeight,
   weights,
 }: {
-  goToChat: () => Promise<void>;
+  canGenerate: boolean;
   isBusy: boolean;
+  onGenerate: () => Promise<void>;
   updateWeight: (field: keyof WeightSettings, value: number) => void;
   weights: WeightSettings;
 }) {
@@ -579,10 +561,11 @@ function WeightControls({
       <Slider label="이상적 미래" value={weights.idealism} onChange={(value) => updateWeight('idealism', value)} />
       <Slider label="커리어 비중" value={weights.career} onChange={(value) => updateWeight('career', value)} />
       <Slider label="직언 성향" value={weights.directness} onChange={(value) => updateWeight('directness', value)} />
-      <button className="primaryButton flowAction" type="button" onClick={goToChat} disabled={isBusy}>
-        <Video size={18} />
-        대화 시작
+      <button className="primaryButton flowAction" type="button" onClick={onGenerate} disabled={isBusy || !canGenerate}>
+        <Sparkles size={18} />
+        미래 자아 생성
       </button>
+      {!canGenerate && <p className="mutedText">잔여 생성 횟수가 없습니다.</p>}
     </div>
   );
 }

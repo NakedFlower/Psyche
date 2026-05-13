@@ -12,8 +12,8 @@ Psyche MVP front-end prototype based on the challenge proposal and the Notion AP
 
 1. Login
 2. Text survey profile entry and source face image upload
-3. Future persona generation waiting step
-4. Conversation weight controls: idealism, career, directness
+3. Conversation weight controls: idealism, career, directness
+4. Future persona generation waiting step
 5. Voice/video session mock with chat log persistence mock
 6. Dashboard for generated persona list and remaining generation credits
 
