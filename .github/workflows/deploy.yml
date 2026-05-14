@@ -53,6 +53,7 @@ jobs:
             docker run -d \
               --name psyche-ecr \
               -p 8000:8000 \
+              -e DB_HOST=${{ secrets.DB_HOST }} \
               -e DB_USER=${{ secrets.DB_USER }} \
               -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
               -e DB_NAME=psyche \
