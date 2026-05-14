@@ -57,5 +57,5 @@ jobs:
               -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
               -e DB_NAME=psyche \
               -e AWS_REGION=ap-northeast-2 \
-              -e S3_FACE_BUCKET=psyche-face \
-              $ECR_URI/psyche-back:latest
+              -e S3_FACE_BUCKET=psyche-face-863771938068-ap-northeast-2-an \
+              $ECR_URI/psyche-ecr:latest
