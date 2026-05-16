@@ -21,13 +21,13 @@ class PresignedUrlResponse(BaseModel):
     object_key: str
 
 
-@router.post("/presigned-url", response_model=PresignedUrlResponse)
-def get_presigned_url(request: PresignedUrlRequest):
+@router.get("/presigned-url", response_model=PresignedUrlResponse)
+def get_presigned_url(session_id: str, filename: str):
     """
     Generate a presigned URL for uploading a photo to the psyche-face S3 bucket.
     The object is stored under sessions/{session_id}/{filename}.
     """
-    object_key = f"sessions/{request.session_id}/{request.filename}"
+    object_key = f"sessions/{session_id}/{filename}"
 
     try:
         s3_client = boto3.client("s3", region_name=AWS_REGION)

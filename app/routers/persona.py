@@ -95,3 +95,11 @@ def create_persona(persona: PersonaCreate, db: DBSession = Depends(get_db)):
     db.refresh(db_persona)
 
     return PersonaResponse(persona_id=db_persona.id, persona_description=description)
+
+@router.get("/{session_id}")
+def get_personas(session_id: str, db: DBSession = Depends(get_db)):
+    """
+    List all personas for a session.
+    """
+    personas = db.query(Persona).filter(Persona.session_id == session_id).order_by(Persona.created_at.desc()).all()
+    return [{"id": str(p.id), "session_id": p.session_id, "optimism_weight": p.optimism_weight, "value_weight": p.value_weight, "tone_weight": p.tone_weight, "persona_description": p.persona_description, "created_at": p.created_at} for p in personas]

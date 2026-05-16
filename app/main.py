@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import survey, photo, persona, chat
+from app.routers import survey, photo, persona, chat, auth
 from app.database import engine, Base
 
 # Create all database tables on startup
@@ -20,6 +20,7 @@ app.include_router(survey.router, prefix="/api/survey", tags=["Survey"])
 app.include_router(photo.router, prefix="/api/photo", tags=["Photo"])
 app.include_router(persona.router, prefix="/api/persona", tags=["Persona"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
+app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 
 
 @app.get("/")

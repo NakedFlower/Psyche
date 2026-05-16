@@ -5,6 +5,16 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 
 
+class User(Base):
+    """Stores user authentication data."""
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(255), unique=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class Session(Base):
     """Represents a user session identified by UUID."""
     __tablename__ = "sessions"
