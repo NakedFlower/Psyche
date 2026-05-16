@@ -25,7 +25,7 @@ const seedPersonas: Persona[] = [
   },
 ];
 
-const BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000';
+const BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://psyche-alb-855966975.ap-northeast-2.elb.amazonaws.com';
 
 let currentSessionId = localStorage.getItem('sessionId') || crypto.randomUUID();
 localStorage.setItem('sessionId', currentSessionId);
