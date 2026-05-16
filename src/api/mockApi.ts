@@ -117,7 +117,7 @@ export const api = {
   },
 
   async uploadImage(file: File) {
-    const res = await fetch(`${BASE_URL}/api/photo/presigned-url?session_id=${currentSessionId}&filename=${encodeURIComponent(file.name)}`, {
+    const res = await fetch(`${BASE_URL}/api/photo/presigned-url?session_id=${currentSessionId}&filename=${encodeURIComponent(file.name)}&content_type=${encodeURIComponent(file.type || 'image/jpeg')}`, {
       method: 'GET',
       headers: getHeaders()
     });
@@ -125,7 +125,7 @@ export const api = {
     
     await fetch(data.upload_url, {
       method: 'PUT',
-      headers: { 'Content-Type': 'image/jpeg' },
+      headers: { 'Content-Type': file.type || 'image/jpeg' },
       body: file
     });
 
