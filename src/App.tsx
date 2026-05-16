@@ -100,7 +100,7 @@ export function App() {
   const handleImage = async (file: File | null) => {
     if (!file) return;
     setIsBusy(true);
-    await api.uploadImage(file.name);
+    await api.uploadImage(file);
     setSurvey((current) => ({
       ...current,
       imageFileName: file.name,
@@ -135,7 +135,7 @@ export function App() {
     };
     setMessages((current) => [...current, userMessage]);
     setChatInput('');
-    const response = await api.saveChatLog(sessionId, chatInput);
+    const response = await api.saveChatLog(sessionId, selectedPersona.id, chatInput);
     setMessages((current) => [...current, response]);
   };
 

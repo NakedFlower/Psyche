@@ -25,6 +25,17 @@ const seedPersonas: Persona[] = [
   },
 ];
 
+const BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000';
+
+let currentSessionId = localStorage.getItem('sessionId') || crypto.randomUUID();
+localStorage.setItem('sessionId', currentSessionId);
+let token = localStorage.getItem('token') || '';
+
+const getHeaders = () => ({
+  'Content-Type': 'application/json',
+  ...(token ? { Authorization: `Bearer ${token}` } : {})
+});
+
 let personas = [...seedPersonas];
 let surveyStore: SurveyForm | null = null;
 let creditBalance: CreditBalance = {
@@ -35,19 +46,52 @@ let creditBalance: CreditBalance = {
 
 export const api = {
   async login(email: string, password: string) {
-    await wait();
+    let res = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+
+    if (!res.ok) {
+      res = await fetch(`${BASE_URL}/api/auth/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      if (!res.ok) throw new Error('Auth failed');
+    }
+
+    const data = await res.json();
+    token = data.access_token;
+    localStorage.setItem('token', token);
+    
     return {
-      accessToken: `mock-access-${email}-${password.length}`,
+      accessToken: data.access_token,
       refreshToken: 'mock-refresh-token',
-      user: { name: '서우', email },
+      user: data.user,
     };
   },
 
   async saveSurvey(form: SurveyForm) {
-    await wait();
     surveyStore = form;
+    const res = await fetch(`${BASE_URL}/api/survey`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        session_id: currentSessionId,
+        mbti: form.mbti,
+        values_text: form.values,
+        habits_text: form.habits,
+        interests_text: '설문 기반 자동 생성',
+        goals_text: form.goals,
+        worries_text: form.concerns,
+        photo_key: form.imageFileName || ''
+      })
+    });
+    
+    const data = await res.json();
     return {
-      id: 'survey-current-user',
+      id: String(data.survey_id),
       profile: {
         mbti: form.mbti,
         values: form.values.split(',').map((item) => item.trim()).filter(Boolean),
@@ -55,33 +99,56 @@ export const api = {
     };
   },
 
-  async uploadImage(fileName: string) {
-    await wait(300);
+  async uploadImage(file: File) {
+    const res = await fetch(`${BASE_URL}/api/photo/presigned-url?session_id=${currentSessionId}&filename=${encodeURIComponent(file.name)}`, {
+      method: 'GET',
+      headers: getHeaders()
+    });
+    const data = await res.json();
+    
+    await fetch(data.upload_url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'image/jpeg' },
+      body: file
+    });
+
     return {
-      fileName,
-      imageUrl: '/future-portrait.svg',
+      fileName: data.object_key,
+      imageUrl: URL.createObjectURL(file),
     };
   },
 
   async generatePersona(targetYear: number, weights: WeightSettings) {
-    await wait(700);
+    const res = await fetch(`${BASE_URL}/api/persona`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        session_id: currentSessionId,
+        optimism_weight: weights.idealism,
+        value_weight: weights.career,
+        tone_weight: weights.directness
+      })
+    });
+    const data = await res.json();
+
     const careerLabel = weights.career >= 0.5 ? '커리어 중심' : '일상 중심';
     const toneLabel = weights.directness >= 0.5 ? '직언형' : '격려형';
     const persona: Persona = {
-      id: `persona-${targetYear}-${Date.now()}`,
+      id: String(data.persona_id),
       targetYear,
       title: `${targetYear}년 후, ${careerLabel} ${toneLabel} 자아`,
-      summary: `${surveyStore?.goals || '현재 목표'}를 기준으로 선택의 결과를 되짚어 주는 페르소나입니다.`,
+      summary: data.persona_description,
       imageUrl: '/future-portrait.svg',
       weights,
       tone: toneLabel,
       createdAt: new Date().toISOString(),
     };
-    personas = [persona, ...personas];
+    
     creditBalance = {
       ...creditBalance,
       remaining: Math.max(creditBalance.remaining - 1, 0),
     };
+    personas = [persona, ...personas];
     return persona;
   },
 
@@ -94,27 +161,55 @@ export const api = {
   },
 
   async listPersonas() {
-    await wait(250);
+    try {
+      const res = await fetch(`${BASE_URL}/api/persona/${currentSessionId}`, {
+        headers: getHeaders()
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const loadedPersonas = data.map((p: any) => ({
+          id: String(p.id),
+          targetYear: 10,
+          title: `미래 자아`,
+          summary: p.persona_description,
+          imageUrl: '/future-portrait.svg',
+          weights: { idealism: p.optimism_weight, career: p.value_weight, directness: p.tone_weight },
+          tone: p.tone_weight >= 0.5 ? '직언형' : '격려형',
+          createdAt: p.created_at
+        }));
+        if (loadedPersonas.length > 0) {
+          personas = loadedPersonas;
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to load personas", e);
+    }
     return personas;
   },
 
   async startChatSession(personaId: string, mode: 'video' | 'voice') {
-    await wait(400);
     return {
-      id: `chat-${personaId}-${mode}`,
+      id: currentSessionId,
       streamUrl: 'mock://psyche/future-self',
     };
   },
 
-  async saveChatLog(chatId: string, message: string): Promise<ChatMessage> {
-    await wait(200);
+  async saveChatLog(chatId: string, personaId: string, message: string): Promise<ChatMessage> {
+    const res = await fetch(`${BASE_URL}/api/chat`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        session_id: currentSessionId,
+        persona_id: parseInt(personaId) || 1,
+        message: message
+      })
+    });
+    const data = await res.json();
+
     return {
-      id: `${chatId}-${Date.now()}`,
+      id: String(data.message_id),
       speaker: 'future',
-      message:
-        message.includes('불안') || message.includes('고민')
-          ? '불안은 신호야. 지금 바꿀 수 있는 작은 행동 하나를 정하고, 오늘 끝내자.'
-          : '지금의 선택은 생각보다 오래 남아. 네가 반복하는 하루가 결국 나를 만들었어.',
+      message: data.reply,
       timestamp: new Date().toISOString(),
     };
   },
