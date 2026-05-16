@@ -79,14 +79,21 @@ export function App() {
     });
   }, []);
 
-  const login = async (event: FormEvent<HTMLFormElement>) => {
+  const login = async (event: FormEvent<HTMLFormElement>, isSignup: boolean) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     setIsBusy(true);
-    const response = await api.login(String(form.get('email')), String(form.get('password')));
-    setUser(response.user);
-    setStep('survey');
-    setIsBusy(false);
+    try {
+      const email = String(form.get('email'));
+      const password = String(form.get('password'));
+      const response = isSignup ? await api.signup(email, password) : await api.login(email, password);
+      setUser(response.user);
+      setStep('survey');
+    } catch (e) {
+      alert(isSignup ? '회원가입에 실패했습니다.' : '로그인에 실패했습니다. 이메일과 비밀번호를 확인해주세요.');
+    } finally {
+      setIsBusy(false);
+    }
   };
 
   const updateSurvey = (field: keyof SurveyForm, value: string) => {
@@ -397,7 +404,7 @@ function FlowView({
   credit: CreditBalance | null;
   handleImage: (file: File | null) => Promise<void>;
   isBusy: boolean;
-  login: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  login: (event: FormEvent<HTMLFormElement>, isSignup: boolean) => Promise<void>;
   messages: ChatMessage[];
   selectedPersona?: Persona;
   sendMessage: () => Promise<void>;
@@ -559,27 +566,39 @@ function DashboardView({
   );
 }
 
-function LoginScreen({ isBusy, login }: { isBusy: boolean; login: (event: FormEvent<HTMLFormElement>) => Promise<void> }) {
+function LoginScreen({ isBusy, login }: { isBusy: boolean; login: (event: FormEvent<HTMLFormElement>, isSignup: boolean) => Promise<void> }) {
+  const [isSignupMode, setIsSignupMode] = useState(false);
+
   return (
     <section className="flowSurface loginScreen">
       <div className="flowCopy">
         <p className="eyebrow">Step 1</p>
         <h2>Psyche에 입장하세요</h2>
-        <p>지금은 인증 API가 준비되기 전이라 입력값으로 mock 토큰을 발급합니다.</p>
+        <p>미래 자아 생성과 대화를 위해 로그인하거나 회원가입해 주세요.</p>
       </div>
-      <form className="loginCard" onSubmit={login}>
+      <form className="loginCard" onSubmit={(e: FormEvent<HTMLFormElement>) => login(e, isSignupMode)}>
         <label>
           이메일
-          <input name="email" type="email" defaultValue="psyche@rookie.ai" />
+          <input name="email" type="email" placeholder="example@mail.com" required />
         </label>
         <label>
           비밀번호
-          <input name="password" type="password" defaultValue="psyche-demo" />
+          <input name="password" type="password" placeholder="비밀번호 입력" required />
         </label>
         <button className="primaryButton" type="submit" disabled={isBusy}>
           <LogIn size={18} />
-          로그인
+          {isSignupMode ? '회원가입' : '로그인'}
         </button>
+        <div style={{ marginTop: '1rem', textAlign: 'center' }}>
+          <button
+            type="button"
+            className="softButton"
+            style={{ fontSize: '0.85rem' }}
+            onClick={() => setIsSignupMode(!isSignupMode)}
+          >
+            {isSignupMode ? '이미 계정이 있으신가요? 로그인' : '계정이 없으신가요? 회원가입'}
+          </button>
+        </div>
       </form>
     </section>
   );

@@ -46,19 +46,36 @@ let creditBalance: CreditBalance = {
 
 export const api = {
   async login(email: string, password: string) {
-    let res = await fetch(`${BASE_URL}/api/auth/login`, {
+    const res = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
     });
 
     if (!res.ok) {
-      res = await fetch(`${BASE_URL}/api/auth/signup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
-      if (!res.ok) throw new Error('Auth failed');
+      throw new Error('Login failed');
+    }
+
+    const data = await res.json();
+    token = data.access_token;
+    localStorage.setItem('token', token);
+    
+    return {
+      accessToken: data.access_token,
+      refreshToken: 'mock-refresh-token',
+      user: data.user,
+    };
+  },
+
+  async signup(email: string, password: string) {
+    const res = await fetch(`${BASE_URL}/api/auth/signup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+
+    if (!res.ok) {
+      throw new Error('Signup failed');
     }
 
     const data = await res.json();
