@@ -7,3 +7,4 @@ boto3
 python-multipart
 pydantic
 python-dotenv
+email-validator
