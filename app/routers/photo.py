@@ -1,5 +1,6 @@
 import os
 import boto3
+from botocore.config import Config
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -30,7 +31,12 @@ def get_presigned_url(session_id: str, filename: str, content_type: str = "image
     object_key = f"sessions/{session_id}/{filename}"
 
     try:
-        s3_client = boto3.client("s3", region_name=AWS_REGION)
+        s3_client = boto3.client(
+            "s3", 
+            region_name=AWS_REGION, 
+            endpoint_url=f"https://s3.{AWS_REGION}.amazonaws.com",
+            config=Config(signature_version="s3v4")
+        )
         upload_url = s3_client.generate_presigned_url(
             "put_object",
             Params={
