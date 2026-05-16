@@ -1,7 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
-  BadgeCheck,
   Camera,
   CreditCard,
   LogIn,
@@ -30,23 +29,12 @@ const initialWeights: WeightSettings = {
   directness: 0.36,
 };
 
-const endpoints = [
-  ['POST', '/api/v1/auth/login'],
-  ['POST', '/api/v1/surveys'],
-  ['POST', '/api/v1/surveys/image'],
-  ['POST', '/api/v1/personas/generate'],
-  ['PATCH', '/api/v1/personas/{id}/weights'],
-  ['POST', '/api/v1/chats/session'],
-  ['POST', '/api/v1/chats/{id}/logs'],
-  ['GET', '/api/v1/credits/balance'],
-];
-
 const flowSteps: Array<{ id: FlowStep; label: string }> = [
   { id: 'login', label: '로그인' },
-  { id: 'survey', label: '설문' },
-  { id: 'weights', label: '가중치' },
+  { id: 'survey', label: '자아 파악용 설문' },
+  { id: 'weights', label: '가중치 설정' },
   { id: 'generating', label: '생성 대기' },
-  { id: 'chat', label: '대화' },
+  { id: 'chat', label: '미래 나와의 대화' },
 ];
 
 const formatPercent = (value: number) => `${Math.round(value * 100)}%`;
@@ -182,31 +170,18 @@ export function App() {
           <div className="brandMark">P</div>
           <div>
             <strong>Psyche</strong>
-            <span>future self studio</span>
+            <span>미래 자아 생성 스튜디오</span>
           </div>
         </div>
 
         <nav className="navList" aria-label="Psyche views">
           <button className={view === 'flow' ? 'activeNav' : ''} type="button" onClick={() => setView('flow')}>
-            체험 플로우
+            미래 자아 체험
           </button>
           <button className={view === 'dashboard' ? 'activeNav' : ''} type="button" onClick={() => setView('dashboard')}>
             대시보드
           </button>
         </nav>
-
-        <section className="apiPanel" aria-label="API mock map">
-          <div className="panelTitle">
-            <BadgeCheck size={16} />
-            Mock API
-          </div>
-          {endpoints.map(([method, path]) => (
-            <div className="endpoint" key={path}>
-              <span>{method}</span>
-              <code>{path}</code>
-            </div>
-          ))}
-        </section>
       </aside>
 
       <section className="workspace">
@@ -221,7 +196,7 @@ export function App() {
               <small>{user.email}</small>
             </div>
           ) : (
-            <span className="sessionPill">login required</span>
+            <span className="sessionPill">로그인 필요</span>
           )}
         </header>
 
@@ -320,7 +295,7 @@ function LandingPage({ onEnter }: { onEnter: () => void }) {
             <div className="brandMark">P</div>
             <div>
               <strong>Psyche</strong>
-              <span>future self studio</span>
+              <span>미래 자아 생성 스튜디오</span>
             </div>
           </div>
           <button className="softButton" type="button" onClick={onEnter}>
@@ -574,7 +549,6 @@ function LoginScreen({ isBusy, login }: { isBusy: boolean; login: (event: FormEv
       <div className="flowCopy">
         <p className="eyebrow">Step 1</p>
         <h2>Psyche에 입장하세요</h2>
-        <p>미래 자아 생성과 대화를 위해 로그인하거나 회원가입해 주세요.</p>
       </div>
       <form className="loginCard" onSubmit={(e: FormEvent<HTMLFormElement>) => login(e, isSignupMode)}>
         <label>
