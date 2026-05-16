@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 router = APIRouter()
 
-S3_FACE_BUCKET = os.getenv("S3_FACE_BUCKET", "psyche-face")
+S3_FACE_BUCKET = os.getenv("S3_FACE_BUCKET", "psyche-face-863771938068-ap-northeast-2-an")
 AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-2")
 
 
@@ -22,7 +22,7 @@ class PresignedUrlResponse(BaseModel):
 
 
 @router.get("/presigned-url", response_model=PresignedUrlResponse)
-def get_presigned_url(session_id: str, filename: str):
+def get_presigned_url(session_id: str, filename: str, content_type: str = "image/jpeg"):
     """
     Generate a presigned URL for uploading a photo to the psyche-face S3 bucket.
     The object is stored under sessions/{session_id}/{filename}.
@@ -36,7 +36,7 @@ def get_presigned_url(session_id: str, filename: str):
             Params={
                 "Bucket": S3_FACE_BUCKET,
                 "Key": object_key,
-                "ContentType": "image/jpeg",
+                "ContentType": content_type,
             },
             ExpiresIn=600,  # 10 minutes
         )
