@@ -1,6 +1,6 @@
 # 미래 자아 생성기 (Future Self Generator) 테라폼 인프라 배포 안내서
 
-이 폴더(`biral/infra`)에는 서비스 전체를 AWS(클라우드)에 단 몇 줄의 명령어로 원클릭 배포하기 위한 **테라폼(Terraform) 코드**가 담겨 있습니다. 
+이 폴더(`viral/infra`)에는 서비스 전체를 AWS(클라우드)에 단 몇 줄의 명령어로 원클릭 배포하기 위한 **테라폼(Terraform) 코드**가 담겨 있습니다. 
 
 클라우드와 인프라를 처음 다루는 초보자분들도 차근차근 따라 하실 수 있도록 기초 단계부터 아주 구체적으로 상세히 설명하겠습니다!
 
@@ -69,11 +69,11 @@
 
 ## 🚀 [2단계] 테라폼으로 클라우드 인프라 배포하기
 
-준비가 완료되었다면 인프라 폴더(`biral/infra`)로 이동하여 순서대로 테라폼 명령어를 실행합니다.
+준비가 완료되었다면 인프라 폴더(`viral/infra`)로 이동하여 순서대로 테라폼 명령어를 실행합니다.
 
 ```bash
 # 1. 인프라 폴더로 이동합니다.
-cd biral/infra
+cd viral/infra
 
 # 2. 테라폼 초기화 (AWS 연동용 플러그인과 모듈들을 인터넷에서 다운로드합니다)
 terraform init
@@ -145,7 +145,7 @@ terraform apply
 
 1. **Next.js 정적 아웃풋 빌드 실행**:
    ```bash
-   cd biral/front
+   cd viral/front
    
    # Next.js 빌드 수행 (빌드가 정상 종료되면 'out' 폴더에 html, css, js 파일들이 생성됩니다)
    npm run build
@@ -170,7 +170,7 @@ terraform apply
 테스트를 마치고 과금을 피하기 위해 배포했던 모든 AWS 리소스를 온전하게 지우고 싶다면 다음 명령어를 치면 됩니다. 테라폼이 1초 만에 깔끔하게 삭제해 줍니다.
 
 ```bash
-cd biral/infra
+cd viral/infra
 
 # 전체 AWS 리소스 삭제 요청
 terraform destroy

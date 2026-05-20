@@ -7,16 +7,16 @@
 ## 1. 실행 방법
 
 ### 프론트엔드 로컬 개발 환경 설정
-프론트엔드 프로젝트 폴더(`biral/front`)에서 작업을 수행합니다.
+프론트엔드 프로젝트 폴더(`viral/front`)에서 작업을 수행합니다.
 
 1. **의존성 패키지 설치**
    ```bash
-   cd biral/front
+   cd viral/front
    npm install
    ```
 
 2. **환경 변수 파일 생성 (`.env.local`)**
-   `biral/front` 폴더 루트에 `.env.local` 파일을 생성하고 아래와 같이 채워 넣습니다.
+   `viral/front` 폴더 루트에 `.env.local` 파일을 생성하고 아래와 같이 채워 넣습니다.
    ```env
    # API Gateway 배포 주소 (로컬에서 실제 연동 시 작성, 더미 모드일 때는 무시됨)
    NEXT_PUBLIC_API_URL=https://your-api-gateway-id.execute-api.ap-northeast-2.amazonaws.com/prod
@@ -43,7 +43,7 @@
 프로젝트의 전체 폴더 및 파일 역할에 대한 한 줄 요약입니다.
 
 ```text
-biral/
+viral/
 ├── front/                       # 프론트엔드 (Next.js App Router)
 │   ├── src/
 │   │   ├── app/
@@ -168,10 +168,10 @@ def call_text_api(quiz_result, text_prompt):
 
 2. **정적 빌드**
    ```bash
-   cd biral/front
+   cd viral/front
    npm run build
    ```
-   빌드가 끝나면 `biral/front/out` 폴더 내에 빌드 결과물이 모입니다.
+   빌드가 끝나면 `viral/front/out` 폴더 내에 빌드 결과물이 모입니다.
 
 3. **S3 버킷에 빌드 파일 업로드**
    - AWS CLI를 사용하여 간편하게 업로드할 수 있습니다:
