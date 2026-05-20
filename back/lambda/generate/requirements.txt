@@ -1,0 +1,6 @@
+# boto3는 AWS Lambda 환경에 기본으로 탑재되어 있으므로 명시하지 않습니다.
+# OpenAI 및 Replicate 등 외부 생성 AI API 연동 시 아래의 주석을 풀고 사용하세요.
+
+# openai>=1.0.0
+# replicate>=0.22.0
+# requests>=2.31.0
