@@ -1,0 +1,11 @@
+{
+  "name": "psyche-ai",
+  "private": true,
+  "scripts": {
+    "dev:tavus": "node apps/ai-demo/server/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
+

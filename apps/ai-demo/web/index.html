@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Psyche AI Tavus MVP</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        background: #f7f5ef;
+        color: #191b1f;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: minmax(320px, 420px) 1fr;
+      }
+
+      aside {
+        padding: 28px;
+        border-right: 1px solid #ded8ca;
+        background: #fffdf8;
+      }
+
+      main {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        background: #ece8df;
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: 26px;
+        line-height: 1.12;
+        letter-spacing: 0;
+      }
+
+      p {
+        margin: 0 0 22px;
+        color: #5d626b;
+        line-height: 1.55;
+      }
+
+      label {
+        display: block;
+        margin: 18px 0 8px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #343943;
+      }
+
+      input,
+      select,
+      textarea {
+        width: 100%;
+        border: 1px solid #c9c3b7;
+        border-radius: 8px;
+        padding: 11px 12px;
+        font: inherit;
+        background: #ffffff;
+        color: #191b1f;
+      }
+
+      textarea {
+        min-height: 70px;
+        resize: vertical;
+      }
+
+      .range-row {
+        display: grid;
+        grid-template-columns: 1fr 58px;
+        gap: 10px;
+        align-items: center;
+      }
+
+      input[type="range"] {
+        padding: 0;
+      }
+
+      .hint {
+        display: block;
+        margin-top: 6px;
+        color: #73706a;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      button {
+        width: 100%;
+        margin-top: 20px;
+        border: 0;
+        border-radius: 8px;
+        padding: 12px 14px;
+        font: inherit;
+        font-weight: 800;
+        color: #ffffff;
+        background: #146c5f;
+        cursor: pointer;
+      }
+
+      .secondary-button {
+        background: #7f2f2a;
+      }
+
+      button:disabled {
+        cursor: progress;
+        background: #7d8784;
+      }
+
+      a {
+        color: #146c5f;
+        font-weight: 800;
+      }
+
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        min-height: 92px;
+        margin: 20px 0 0;
+        padding: 14px;
+        border-radius: 8px;
+        background: #191b1f;
+        color: #e8f1ee;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .frame {
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        place-items: center;
+        padding: 20px;
+      }
+
+      iframe {
+        width: 100%;
+        height: 100%;
+        min-height: 640px;
+        border: 0;
+        border-radius: 8px;
+        background: #111;
+      }
+
+      .empty {
+        color: #65615a;
+        text-align: center;
+      }
+
+      .join-panel {
+        width: min(720px, 100%);
+        padding: 20px;
+        border-radius: 8px;
+        background: #fffdf8;
+        border: 1px solid #d7d0c2;
+        line-height: 1.5;
+      }
+
+      .join-panel p {
+        margin-bottom: 12px;
+      }
+
+      @media (max-width: 860px) {
+        body {
+          grid-template-columns: 1fr;
+        }
+
+        aside {
+          border-right: 0;
+          border-bottom: 1px solid #ded8ca;
+        }
+
+        iframe {
+          min-height: 520px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <h1>Psyche AI Tavus MVP</h1>
+      <p>테스트 persona와 replica로 화상통화 세션을 생성합니다.</p>
+
+      <label for="targetYear">몇 년 뒤의 나</label>
+      <select id="targetYear">
+        <option value="10" selected>10년 뒤</option>
+        <option value="20">20년 뒤</option>
+        <option value="30">30년 뒤</option>
+      </select>
+
+      <label for="mbti">MBTI</label>
+      <input id="mbti" value="INTJ" />
+
+      <label for="values">가치관</label>
+      <textarea id="values">성장, 자유, 안정</textarea>
+
+      <label for="habits">생활습관</label>
+      <textarea id="habits">늦게 잠, 기록하기</textarea>
+
+      <label for="goals">목표</label>
+      <textarea id="goals">AI 제품 만들기, 건강 관리하기</textarea>
+
+      <label for="concerns">현재 고민</label>
+      <textarea id="concerns">커리어 불확실성, 꾸준함 부족</textarea>
+
+      <label for="idealFuture">이상적 미래 / 현실적 미래</label>
+      <div class="range-row">
+        <input id="idealFuture" type="range" min="0" max="100" value="60" />
+        <input id="idealFutureValue" value="60" />
+      </div>
+      <span class="hint">0은 현실적 미래 중심, 100은 이상적 미래 중심</span>
+
+      <label for="careerFocus">커리어 / 가정생활</label>
+      <div class="range-row">
+        <input id="careerFocus" type="range" min="0" max="100" value="60" />
+        <input id="careerFocusValue" value="60" />
+      </div>
+      <span class="hint">0은 가정생활 중심, 100은 커리어 중심</span>
+
+      <label for="directness">직언 / 공감</label>
+      <div class="range-row">
+        <input id="directness" type="range" min="0" max="100" value="45" />
+        <input id="directnessValue" value="45" />
+      </div>
+      <span class="hint">0은 공감 중심, 100은 직언 중심</span>
+
+      <button id="generateButton">페르소나 생성</button>
+
+      <label for="personaId">Persona ID</label>
+      <input id="personaId" value="test" />
+
+      <label for="mode">Mode</label>
+      <select id="mode">
+        <option value="video" selected>video</option>
+        <option value="voice">voice</option>
+      </select>
+
+      <label for="language">Language</label>
+      <input id="language" value="korean" />
+
+      <label for="conversationName">Conversation Name</label>
+      <input id="conversationName" value="Psyche AI MVP Test" />
+
+      <button id="startButton">화상통화 시작</button>
+      <button class="secondary-button" id="endButton" disabled>화상통화 종료</button>
+      <pre id="status">Ready</pre>
+    </aside>
+
+    <main>
+      <div class="frame" id="frame">
+        <div class="empty">세션을 만들면 Tavus 통화 화면이 여기에 표시됩니다.</div>
+      </div>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
