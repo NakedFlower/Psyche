@@ -32,6 +32,7 @@ TAVUS_API_KEY=
 TAVUS_REPLICA_ID=
 TAVUS_PERSONA_ID=
 TAVUS_LANGUAGE=korean
+TAVUS_VOICE_NAME=anna
 ```
 
 Optional future voice settings:
@@ -63,9 +64,9 @@ Browser UI
 
 ```txt
 Survey input
+  -> Image URL to Tavus replica
   -> Rule-based persona prompt generator
   -> Tavus POST /v2/personas
   -> saved tavus_persona_id
   -> Tavus conversation
 ```
-

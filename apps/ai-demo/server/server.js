@@ -10,7 +10,9 @@ loadEnv(path.join(rootDir, ".env"));
 const port = Number(process.env.PORT || 4310);
 const host = process.env.HOST || "127.0.0.1";
 let activeConversation = null;
+let activeReplica = null;
 const generatedPersonas = new Map();
+const generatedReplicas = new Map();
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -37,6 +39,15 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/api/v1/personas/generate") {
       return generatePersona(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/v1/replicas/generate") {
+      return generateReplica(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname.startsWith("/api/v1/replicas/")) {
+      const replicaId = decodeURIComponent(url.pathname.split("/").at(-1));
+      return getReplicaStatus(replicaId, res);
     }
 
     if (req.method === "PATCH" && url.pathname === "/api/v1/chats/test/end") {
@@ -74,6 +85,7 @@ async function generatePersona(req, res) {
   const targetYear = Number(body.targetYear || 10);
   const survey = body.survey || {};
   const weights = normalizeWeights(body.weights);
+  const tavusReplicaId = body.tavusReplicaId || activeReplica?.replicaId || process.env.TAVUS_REPLICA_ID;
   const archetype = buildPersonaArchetype({ targetYear, survey, weights });
   const personaId = body.personaId || "test";
   const displayName = `${targetYear}년 뒤의 나 - ${archetype.title}`;
@@ -95,7 +107,7 @@ async function generatePersona(req, res) {
     persona_name: body.personaName || `Psyche ${displayName}`,
     pipeline_mode: "full",
     system_prompt: systemPrompt,
-    default_replica_id: process.env.TAVUS_REPLICA_ID,
+    default_replica_id: tavusReplicaId,
     layers: buildPersonaLayers(body.voice)
   };
 
@@ -125,7 +137,7 @@ async function generatePersona(req, res) {
   const persona = {
     personaId,
     tavusPersonaId: tavusBody.persona_id,
-    tavusReplicaId: process.env.TAVUS_REPLICA_ID,
+    tavusReplicaId,
     targetYear,
     displayName,
     language,
@@ -142,6 +154,126 @@ async function generatePersona(req, res) {
   generatedPersonas.set(personaId, persona);
 
   return sendJson(res, 200, persona);
+}
+
+async function generateReplica(req, res) {
+  const envStatus = getEnvStatus();
+  const missing = Object.entries(envStatus)
+    .filter(([key, exists]) => key !== "TAVUS_PERSONA_ID" && !exists)
+    .map(([key]) => key);
+
+  if (missing.length > 0) {
+    return sendJson(res, 400, {
+      error: "Missing environment variables",
+      missing
+    });
+  }
+
+  const body = await readJson(req);
+  const trainImageUrl = body.trainImageUrl;
+  const voiceName = body.voiceName || process.env.TAVUS_VOICE_NAME || "anna";
+
+  if (!trainImageUrl) {
+    return sendJson(res, 400, {
+      error: "Missing trainImageUrl",
+      message: "Tavus image-to-replica requires a publicly accessible image URL."
+    });
+  }
+
+  const tavusPayload = {
+    replica_name: body.replicaName || "Psyche Future Self Replica",
+    train_image_url: trainImageUrl,
+    voice_name: voiceName,
+    auto_fix_training_image: body.autoFixTrainingImage !== false,
+    model_name: body.modelName || "phoenix-4"
+  };
+
+  const tavusResponse = await fetch("https://tavusapi.com/v2/replicas", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": process.env.TAVUS_API_KEY
+    },
+    body: JSON.stringify(tavusPayload)
+  });
+
+  const tavusBody = await tavusResponse.json().catch(() => ({}));
+
+  if (!tavusResponse.ok) {
+    const fallbackReplica = {
+      replicaId: process.env.TAVUS_REPLICA_ID,
+      status: "fallback",
+      replicaName: "Default Tavus Replica",
+      trainImageUrl,
+      voiceName,
+      fallback: true,
+      fallbackReason: tavusBody.message || tavusBody.error || "Tavus replica creation failed",
+      details: tavusBody
+    };
+
+    activeReplica = fallbackReplica;
+
+    return sendJson(res, 200, {
+      warning: "Tavus replica creation failed. Falling back to default replica.",
+      provider: "tavus",
+      ...fallbackReplica
+    });
+  }
+
+  const replica = {
+    replicaId: tavusBody.replica_id,
+    status: tavusBody.status || "started",
+    replicaName: tavusPayload.replica_name,
+    trainImageUrl,
+    voiceName,
+    createdAt: new Date().toISOString()
+  };
+
+  activeReplica = replica;
+  generatedReplicas.set(replica.replicaId, replica);
+
+  return sendJson(res, 200, replica);
+}
+
+async function getReplicaStatus(replicaId, res) {
+  if (!replicaId) {
+    return sendJson(res, 400, { error: "Missing replica id" });
+  }
+
+  const tavusResponse = await fetch(`https://tavusapi.com/v2/replicas/${replicaId}`, {
+    method: "GET",
+    headers: {
+      "x-api-key": process.env.TAVUS_API_KEY
+    }
+  });
+
+  const tavusBody = await tavusResponse.json().catch(() => ({}));
+
+  if (!tavusResponse.ok) {
+    return sendJson(res, tavusResponse.status, {
+      error: "Tavus replica status lookup failed",
+      provider: "tavus",
+      details: tavusBody
+    });
+  }
+
+  const replica = {
+    replicaId: tavusBody.replica_id,
+    status: tavusBody.status,
+    trainingProgress: tavusBody.training_progress,
+    errorMessage: tavusBody.error_message,
+    thumbnailVideoUrl: tavusBody.thumbnail_video_url,
+    modelName: tavusBody.model_name,
+    updatedAt: tavusBody.updated_at
+  };
+
+  activeReplica = {
+    ...(generatedReplicas.get(replicaId) || {}),
+    ...replica
+  };
+  generatedReplicas.set(replicaId, activeReplica);
+
+  return sendJson(res, 200, replica);
 }
 
 async function createChatSession(req, res) {
@@ -164,6 +296,11 @@ async function createChatSession(req, res) {
   const generatedPersona = generatedPersonas.get(personaId);
   const tavusPersonaId =
     body.tavusPersonaId || generatedPersona?.tavusPersonaId || process.env.TAVUS_PERSONA_ID;
+  const tavusReplicaId =
+    body.tavusReplicaId ||
+    generatedPersona?.tavusReplicaId ||
+    activeReplica?.replicaId ||
+    process.env.TAVUS_REPLICA_ID;
 
   if (activeConversation?.conversationId) {
     await endTavusConversation(activeConversation.conversationId);
@@ -177,7 +314,7 @@ async function createChatSession(req, res) {
       "x-api-key": process.env.TAVUS_API_KEY
     },
     body: JSON.stringify({
-      replica_id: process.env.TAVUS_REPLICA_ID,
+      replica_id: tavusReplicaId,
       persona_id: tavusPersonaId,
       conversation_name: body.conversationName || "Psyche AI MVP Test",
       conversational_context:
@@ -210,6 +347,7 @@ async function createChatSession(req, res) {
     userId: "test",
     personaId,
     tavusPersonaId,
+    tavusReplicaId,
     mode,
     realtime: null,
     avatar: {

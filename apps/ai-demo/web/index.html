@@ -191,6 +191,18 @@
       <h1>Psyche AI Tavus MVP</h1>
       <p>테스트 persona와 replica로 화상통화 세션을 생성합니다.</p>
 
+      <label for="trainImageUrl">Replica Image URL</label>
+      <input id="trainImageUrl" placeholder="https://example.com/photo.png" />
+      <span class="hint">Tavus가 접근 가능한 공개 이미지 URL이 필요합니다. 무료 플랜에서 생성이 막히면 기본 아바타로 자동 진행합니다.</span>
+
+      <label for="voiceName">Replica Voice Name</label>
+      <input id="voiceName" value="anna" />
+      <span class="hint">이미지 기반 replica에는 Tavus stock voice slug가 필요합니다. 예: anna</span>
+
+      <button id="generateReplicaButton">사진으로 Replica 생성</button>
+      <button id="useDefaultReplicaButton">기본 아바타 사용</button>
+      <button class="secondary-button" id="checkReplicaButton" disabled>Replica 상태 확인</button>
+
       <label for="targetYear">몇 년 뒤의 나</label>
       <select id="targetYear">
         <option value="10" selected>10년 뒤</option>

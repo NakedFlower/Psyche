@@ -57,6 +57,68 @@ Response:
 
 ## C. Future Persona Generation
 
+### Generate Tavus Replica From Image
+
+```http
+POST /api/v1/replicas/generate
+```
+
+Tavus image-to-replica requires a publicly accessible image URL and a stock
+`voice_name`.
+
+Request:
+
+```json
+{
+  "trainImageUrl": "https://example.com/photo.png",
+  "voiceName": "anna",
+  "replicaName": "Psyche Future Self Replica",
+  "autoFixTrainingImage": true
+}
+```
+
+Response:
+
+```json
+{
+  "replicaId": "test",
+  "status": "started",
+  "replicaName": "Psyche Future Self Replica",
+  "trainImageUrl": "https://example.com/photo.png",
+  "voiceName": "anna"
+}
+```
+
+If replica creation is unavailable, for example on a free Tavus plan, the AI
+server falls back to the default stock replica.
+
+```json
+{
+  "warning": "Tavus replica creation failed. Falling back to default replica.",
+  "replicaId": "test",
+  "status": "fallback",
+  "fallback": true,
+  "fallbackReason": "Custom replica training is not available on this plan."
+}
+```
+
+### Get Tavus Replica Status
+
+```http
+GET /api/v1/replicas/{id}
+```
+
+Response:
+
+```json
+{
+  "replicaId": "test",
+  "status": "completed",
+  "trainingProgress": "100/100",
+  "errorMessage": null
+}
+```
+
 ### Generate Tavus Persona
 
 ```http
@@ -71,6 +133,7 @@ Request:
 ```json
 {
   "targetYear": 10,
+  "tavusReplicaId": "test",
   "sourceSurveyId": "test",
   "imageId": "test",
   "language": "korean",

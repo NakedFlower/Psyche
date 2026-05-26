@@ -9,6 +9,8 @@ The AI branch should prove this flow first:
 
 ```txt
 Psyche survey data
+  -> user image URL
+  -> Tavus replica
   -> future year and persona weights
   -> persona prompt
   -> Tavus persona
@@ -39,13 +41,14 @@ Tavus
 1. User opens http://127.0.0.1:4310
 2. User clicks "화상통화 시작"
 3. User clicks "페르소나 생성"
-4. Local server builds a Korean future-self prompt
-5. Local server calls Tavus Create Persona
-6. User clicks "화상통화 시작"
-7. Local server calls Tavus Create Conversation
-8. Browser renders the Tavus room in an iframe
-9. User clicks "화상통화 종료"
-10. Local server calls Tavus End Conversation
+4. Optional: User creates a replica from a public image URL
+5. Local server builds a Korean future-self prompt
+6. Local server calls Tavus Create Persona with that replica
+7. User clicks "화상통화 시작"
+8. Local server calls Tavus Create Conversation
+9. Browser renders the Tavus room in an iframe
+10. User clicks "화상통화 종료"
+11. Local server calls Tavus End Conversation
 ```
 
 ## Near-Term Target
@@ -61,6 +64,12 @@ Persona generation inputs:
 - ideal future vs realistic future percentage
 - career vs family/life percentage
 - direct advice vs empathy percentage
+
+Replica generation inputs:
+
+- publicly accessible image URL
+- Tavus stock `voice_name`
+- optional AI image fixing
 
 ## Voice Strategy
 

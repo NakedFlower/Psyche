@@ -1,3 +1,6 @@
+const generateReplicaButton = document.getElementById("generateReplicaButton");
+const useDefaultReplicaButton = document.getElementById("useDefaultReplicaButton");
+const checkReplicaButton = document.getElementById("checkReplicaButton");
 const generateButton = document.getElementById("generateButton");
 const startButton = document.getElementById("startButton");
 const endButton = document.getElementById("endButton");
@@ -5,10 +8,91 @@ const statusBox = document.getElementById("status");
 const frame = document.getElementById("frame");
 let activeAvatarSessionId = null;
 let activeTavusPersonaId = null;
+let activeTavusReplicaId = null;
 
 bindRangePair("idealFuture", "idealFutureValue");
 bindRangePair("careerFocus", "careerFocusValue");
 bindRangePair("directness", "directnessValue");
+
+generateReplicaButton.addEventListener("click", async () => {
+  generateReplicaButton.disabled = true;
+  statusBox.textContent = "Creating Tavus replica from image...";
+
+  try {
+    const response = await fetch("/api/v1/replicas/generate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        trainImageUrl: document.getElementById("trainImageUrl").value.trim(),
+        voiceName: document.getElementById("voiceName").value.trim() || "anna",
+        replicaName: "Psyche Future Self Replica",
+        autoFixTrainingImage: true
+      })
+    });
+
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(JSON.stringify(payload, null, 2));
+    }
+
+    activeTavusReplicaId = payload.replicaId;
+    checkReplicaButton.disabled = Boolean(payload.fallback);
+    statusBox.textContent = JSON.stringify(
+      {
+        replicaId: payload.replicaId,
+        status: payload.status,
+        voiceName: payload.voiceName,
+        fallback: payload.fallback || false,
+        warning: payload.warning,
+        reason: payload.fallbackReason
+      },
+      null,
+      2
+    );
+  } catch (error) {
+    statusBox.textContent = error.message;
+  } finally {
+    generateReplicaButton.disabled = false;
+  }
+});
+
+useDefaultReplicaButton.addEventListener("click", () => {
+  activeTavusReplicaId = null;
+  checkReplicaButton.disabled = true;
+  statusBox.textContent = JSON.stringify(
+    {
+      replica: "default",
+      message: "기본 Tavus 아바타를 사용합니다. 페르소나 생성과 화상통화는 계속 진행할 수 있습니다."
+    },
+    null,
+    2
+  );
+});
+
+checkReplicaButton.addEventListener("click", async () => {
+  if (!activeTavusReplicaId) return;
+
+  checkReplicaButton.disabled = true;
+  statusBox.textContent = "Checking Tavus replica status...";
+
+  try {
+    const response = await fetch(`/api/v1/replicas/${activeTavusReplicaId}`);
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(JSON.stringify(payload, null, 2));
+    }
+
+    statusBox.textContent = JSON.stringify(payload, null, 2);
+  } catch (error) {
+    statusBox.textContent = error.message;
+  } finally {
+    checkReplicaButton.disabled = false;
+  }
+});
 
 generateButton.addEventListener("click", async () => {
   generateButton.disabled = true;
@@ -22,6 +106,7 @@ generateButton.addEventListener("click", async () => {
       },
       body: JSON.stringify({
         personaId: document.getElementById("personaId").value || "test",
+        tavusReplicaId: activeTavusReplicaId,
         targetYear: Number(document.getElementById("targetYear").value || 10),
         language: document.getElementById("language").value || "korean",
         weights: {
@@ -53,6 +138,7 @@ generateButton.addEventListener("click", async () => {
       {
         personaId: payload.personaId,
         tavusPersonaId: payload.tavusPersonaId,
+        tavusReplicaId: payload.tavusReplicaId,
         displayName: payload.displayName,
         weights: payload.weights,
         archetype: payload.archetype?.title,
@@ -88,6 +174,7 @@ startButton.addEventListener("click", async () => {
       body: JSON.stringify({
         personaId: document.getElementById("personaId").value || "test",
         tavusPersonaId: activeTavusPersonaId,
+        tavusReplicaId: activeTavusReplicaId,
         mode: document.getElementById("mode").value || "video",
         language: document.getElementById("language").value || "korean",
         conversationName:
@@ -112,6 +199,7 @@ startButton.addEventListener("click", async () => {
     statusBox.textContent = JSON.stringify(
       {
         chatId: payload.chatId,
+        tavusReplicaId: payload.tavusReplicaId,
         avatarSessionId: payload.avatar.avatarSessionId,
         joinUrl: payload.avatar.joinUrl,
         language: payload.avatar.language,
