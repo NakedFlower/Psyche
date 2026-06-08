@@ -2,10 +2,11 @@
   "name": "psyche-ai",
   "private": true,
   "scripts": {
-    "dev:tavus": "node apps/ai-demo/server/server.js"
+    "dev:tavus": "node apps/ai-demo/server/server.js",
+    "dev:avatar": "node apps/agent/server.js",
+    "check:avatar": "node --check apps/agent/server.js && node --check apps/web/src/main.js"
   },
   "engines": {
     "node": ">=18"
   }
 }
-

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Psyche Avatar Lab</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="panel control-panel">
+        <div>
+          <p class="eyebrow">Psyche Avatar Lab</p>
+          <h1>LiveKit Room Test</h1>
+        </div>
+
+        <form id="joinForm" class="join-form">
+          <label>
+            Token server
+            <input id="tokenEndpoint" value="/api/livekit/token" />
+          </label>
+          <label>
+            Room
+            <input id="roomName" value="psyche-avatar-lab" />
+          </label>
+          <label>
+            Identity
+            <input id="identity" />
+          </label>
+          <div class="switch-row">
+            <label class="switch">
+              <input id="cameraEnabled" type="checkbox" checked />
+              <span>Camera</span>
+            </label>
+            <label class="switch">
+              <input id="microphoneEnabled" type="checkbox" checked />
+              <span>Mic</span>
+            </label>
+          </div>
+          <div class="button-row">
+            <button id="joinButton" type="submit">Join</button>
+            <button id="leaveButton" type="button" disabled>Leave</button>
+          </div>
+        </form>
+
+        <div class="status-grid">
+          <div>
+            <span>Connection</span>
+            <strong id="connectionState">disconnected</strong>
+          </div>
+          <div>
+            <span>Room</span>
+            <strong id="activeRoom">-</strong>
+          </div>
+          <div>
+            <span>Local tracks</span>
+            <strong id="localTrackState">none</strong>
+          </div>
+          <div>
+            <span>Remote tracks</span>
+            <strong id="remoteTrackCount">0</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="stage">
+        <div class="local-preview">
+          <div class="section-head">
+            <h2>Local</h2>
+            <span id="localParticipantName">not joined</span>
+          </div>
+          <div id="localMedia" class="media-grid empty">No local media</div>
+        </div>
+
+        <div class="remote-preview">
+          <div class="section-head">
+            <h2>Remote Tracks</h2>
+            <span>agent / avatar worker / second browser</span>
+          </div>
+          <div id="remoteMedia" class="media-grid empty">No remote tracks</div>
+        </div>
+      </section>
+
+      <aside class="panel telemetry-panel">
+        <div class="section-head">
+          <h2>Participants</h2>
+          <button id="refreshButton" type="button" disabled>Refresh</button>
+        </div>
+        <ul id="participants" class="participants">
+          <li>No participants</li>
+        </ul>
+
+        <div class="section-head latency-head">
+          <h2>Latency Events</h2>
+          <button id="sendLatencyButton" type="button" disabled>Send Test</button>
+        </div>
+        <ol id="eventLog" class="event-log">
+          <li>Waiting for LiveKit data channel events</li>
+        </ol>
+      </aside>
+    </main>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
