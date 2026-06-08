@@ -1,0 +1,36 @@
+services:
+  web:
+    image: node:22-slim
+    working_dir: /app
+    command: ["sh", "-c", "echo 'Add web dev command after scaffolding apps/web' && sleep infinity"]
+    volumes:
+      - ..:/app
+    ports:
+      - "5174:5174"
+
+  agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agent
+    environment:
+      LIVEKIT_URL: ${LIVEKIT_URL}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+  avatar-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.avatar-worker
+    environment:
+      LIVEKIT_URL: ${LIVEKIT_URL}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+

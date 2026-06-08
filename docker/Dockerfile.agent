@@ -1,0 +1,12 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY apps/agent ./apps/agent
+COPY packages ./packages
+
+CMD ["sh", "-c", "echo 'Agent app scaffold ready. Add runtime entrypoint after implementation.' && sleep infinity"]

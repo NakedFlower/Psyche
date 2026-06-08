@@ -1,72 +1,52 @@
-# Psyche AI Tavus MVP
+# Psyche Avatar Lab
 
-Standalone MVP for testing Psyche's AI video-call experience with Tavus.
+R&D branch for Psyche's realtime AI avatar engine.
 
-The current goal is intentionally narrow:
+This branch explores a Tavus-independent pipeline using LiveKit, OpenAI
+Realtime, and GPU lip-sync models such as Wav2Lip and MuseTalk.
 
-- Create a Tavus conversation from a local Psyche-style API.
-- Render the Tavus video-call URL in a simple browser UI.
-- End the active Tavus conversation so test sessions do not pile up.
-- Prepare the next step: survey-based persona prompt generation and automatic
-  Tavus persona creation.
+## Why This Exists
 
-## Run
+The main Psyche AI MVP uses Tavus for stable product demos. This branch is a
+separate research track for using the A100 GPU server to test a custom avatar
+pipeline.
 
-Create `.env` from `.env.example` and fill the Tavus values.
-
-```bash
-cd /Users/jangseou/psyche-ai
-npm run dev:tavus
-```
-
-Open:
+## Target Pipeline
 
 ```txt
-http://127.0.0.1:4310
+User microphone
+  -> LiveKit WebRTC
+  -> Voice agent
+  -> OpenAI Realtime speech response
+  -> Avatar worker
+  -> Wav2Lip / MuseTalk
+  -> Encoded video frames
+  -> LiveKit custom video track
+  -> Browser video-call UI
 ```
 
-## Environment
-
-```env
-TAVUS_API_KEY=
-TAVUS_REPLICA_ID=
-TAVUS_PERSONA_ID=
-TAVUS_LANGUAGE=korean
-TAVUS_VOICE_NAME=anna
-```
-
-Optional future voice settings:
-
-```env
-ELEVENLABS_API_KEY=
-ELEVENLABS_VOICE_ID=
-```
-
-## Current Flow
+## Repository Layout
 
 ```txt
-Browser UI
-  -> POST /api/v1/chats/session
-  -> Tavus POST /v2/conversations
-  -> conversation_url
-  -> iframe video call
+apps/
+  web/             # LiveKit client test UI
+  agent/           # LiveKit agent + OpenAI Realtime
+  avatar-worker/   # MuseTalk/Wav2Lip inference server
+
+packages/
+  shared/          # event types and schemas
+
+models/            # local model checkpoints, not committed
+scripts/           # model download and benchmark scripts
+docs/              # architecture, latency, model comparison
+docker/            # Dockerfiles and compose file
 ```
 
-Ending a call:
+## First Milestones
 
-```txt
-Browser UI
-  -> PATCH /api/v1/chats/test/end
-  -> Tavus POST /v2/conversations/{conversation_id}/end
-```
+1. Voice-only LiveKit room with an AI participant.
+2. Offline Wav2Lip benchmark with a fixed face image and generated speech.
+3. MuseTalk benchmark on A100.
+4. Publish generated avatar frames to LiveKit.
+5. Compare latency, quality, and cost against Tavus.
 
-## Next Flow
-
-```txt
-Survey input
-  -> Image URL to Tavus replica
-  -> Rule-based persona prompt generator
-  -> Tavus POST /v2/personas
-  -> saved tavus_persona_id
-  -> Tavus conversation
-```
