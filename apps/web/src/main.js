@@ -110,7 +110,11 @@ async function joinRoom() {
     state.room = room;
 
     if (elements.microphoneEnabled.checked) {
-      await room.localParticipant.setMicrophoneEnabled(true);
+      await room.localParticipant.setMicrophoneEnabled(true, {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      });
     }
 
     if (elements.cameraEnabled.checked) {

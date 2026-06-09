@@ -5,6 +5,8 @@ export async function createOpenAIRealtimeAudioPump({
   instructions,
   prompt,
   audioSource,
+  clearAudioOutput,
+  onOutputAudioLevel,
   AudioFrame,
   log
 }) {
@@ -24,7 +26,10 @@ export async function createOpenAIRealtimeAudioPump({
 
   let closed = false;
   let responseRequested = false;
+  let responseInFlight = false;
+  let responseDoneWaiters = [];
   let outputChunks = 0;
+  let outputGeneration = 0;
   let audioWriteChain = Promise.resolve();
   let inputChunks = 0;
   let inputCommitted = false;
@@ -91,31 +96,17 @@ export async function createOpenAIRealtimeAudioPump({
       return;
     }
 
-    if (event.type === "session.updated" && !responseRequested) {
+    if (event.type === "session.updated" && !responseRequested && prompt) {
       responseRequested = true;
-      send({
-        type: "response.create",
-        response: {
-          output_modalities: ["audio"],
-          audio: {
-            output: {
-              format: {
-                type: "audio/pcm",
-                rate: 24000
-              },
-              voice
-            }
-          },
-          instructions: prompt
-        }
-      });
+      sendResponseCreate("greeting");
       return;
     }
 
     if (event.type === "response.output_audio.delta" || event.type === "response.audio.delta") {
       outputChunks += 1;
+      const generation = outputGeneration;
       audioWriteChain = audioWriteChain
-        .then(() => capturePcm16Delta(event.delta))
+        .then(() => capturePcm16Delta(event.delta, generation))
         .catch((error) => {
           log("openai.realtime.audio.error", { message: error.message });
         });
@@ -132,10 +123,21 @@ export async function createOpenAIRealtimeAudioPump({
       return;
     }
 
+    if (event.type === "response.done") {
+      const usage = event.response?.usage || null;
+      log("openai.realtime.usage", {
+        usage,
+        estimatedCostUsd: estimateRealtimeCostUsd(usage)
+      });
+      log("openai.realtime.event", { type: event.type });
+      responseInFlight = false;
+      resolveResponseDoneWaiters(event);
+      return;
+    }
+
     if (
       event.type === "session.created" ||
       event.type === "response.created" ||
-      event.type === "response.done" ||
       event.type === "response.output_audio.done" ||
       event.type === "response.audio.done"
     ) {
@@ -143,20 +145,28 @@ export async function createOpenAIRealtimeAudioPump({
     }
   }
 
-  async function capturePcm16Delta(base64Audio) {
+  async function capturePcm16Delta(base64Audio, generation) {
     if (closed) return;
     if (!base64Audio) return;
+    if (generation !== outputGeneration) return;
 
     const bytes = Buffer.from(base64Audio, "base64");
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const pcm = new Int16Array(Math.floor(bytes.byteLength / 2));
+    let sumSquares = 0;
     for (let i = 0; i < pcm.length; i += 1) {
       pcm[i] = view.getInt16(i * 2, true);
+      sumSquares += pcm[i] * pcm[i];
+    }
+
+    if (pcm.length > 0) {
+      onOutputAudioLevel?.(Math.sqrt(sumSquares / pcm.length) / 32768);
     }
 
     const frameSamples = 240;
     for (let start = 0; start < pcm.length; start += frameSamples) {
       if (closed) return;
+      if (generation !== outputGeneration) return;
       const slice = pcm.subarray(start, start + frameSamples);
       const frame = new Int16Array(slice.length);
       frame.set(slice);
@@ -170,6 +180,11 @@ export async function createOpenAIRealtimeAudioPump({
   }
 
   return {
+    beginInputTurn() {
+      inputBuffers.length = 0;
+      inputChunks = 0;
+      inputCommitted = false;
+    },
     appendInputAudioFrame(frame) {
       if (closed) return;
       const bytes = encodeAudioFrameBytes(frame);
@@ -178,7 +193,7 @@ export async function createOpenAIRealtimeAudioPump({
       inputChunks += 1;
     },
     commitInputAudio() {
-      if (closed || inputCommitted || inputChunks === 0) return;
+      if (closed || inputCommitted || inputChunks === 0) return false;
       inputCommitted = true;
       const audio = concatBase64(inputBuffers);
       send({
@@ -198,18 +213,50 @@ export async function createOpenAIRealtimeAudioPump({
         inputChunks,
         bytes: inputBuffers.reduce((sum, chunk) => sum + chunk.byteLength, 0)
       });
+      return true;
     },
     requestResponse(reason = "manual") {
       if (closed) return;
       sendResponseCreate(reason);
     },
+    isResponseInFlight() {
+      return responseInFlight;
+    },
+    cancelResponse(reason = "barge-in") {
+      if (closed || !responseInFlight) return false;
+      outputGeneration += 1;
+      responseInFlight = false;
+      clearAudioOutput?.();
+      send({ type: "response.cancel" });
+      resolveResponseDoneWaiters({ type: "response.cancelled", reason });
+      log("openai.realtime.response_cancelled", { reason });
+      return true;
+    },
+    waitForResponseDone(timeoutMs = 30000) {
+      if (!responseInFlight) return Promise.resolve(null);
+
+      return new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          responseDoneWaiters = responseDoneWaiters.filter((waiter) => waiter !== done);
+          resolve(null);
+        }, timeoutMs);
+        const done = (event) => {
+          clearTimeout(timeout);
+          resolve(event);
+        };
+        responseDoneWaiters.push(done);
+      });
+    },
     close() {
       closed = true;
+      resolveResponseDoneWaiters(null);
       ws.close();
     }
   };
 
   function sendResponseCreate(reason) {
+    outputGeneration += 1;
+    responseInFlight = true;
     send({
       type: "response.create",
       response: {
@@ -226,6 +273,14 @@ export async function createOpenAIRealtimeAudioPump({
         instructions: reason === "greeting" ? prompt : undefined
       }
     });
+  }
+
+  function resolveResponseDoneWaiters(event) {
+    const waiters = responseDoneWaiters;
+    responseDoneWaiters = [];
+    for (const waiter of waiters) {
+      waiter(event);
+    }
   }
 }
 
@@ -262,4 +317,50 @@ function addSocketListener(socket, eventName, handler) {
 
 function optionalProtocol(prefix, value) {
   return value ? `${prefix}.${value}` : null;
+}
+
+function estimateRealtimeCostUsd(usage) {
+  if (!usage) return null;
+
+  const inputDetails = usage.input_token_details || {};
+  const outputDetails = usage.output_token_details || {};
+  const cachedDetails = inputDetails.cached_tokens_details || {};
+
+  const cachedTextTokens = Number(cachedDetails.text_tokens || 0);
+  const cachedAudioTokens = Number(cachedDetails.audio_tokens || 0);
+  const textInputTokens = Math.max(Number(inputDetails.text_tokens || 0) - cachedTextTokens, 0);
+  const audioInputTokens = Math.max(Number(inputDetails.audio_tokens || 0) - cachedAudioTokens, 0);
+  const textOutputTokens = Number(outputDetails.text_tokens || 0);
+  const audioOutputTokens = Number(outputDetails.audio_tokens || 0);
+
+  const price = {
+    textInput: Number(process.env.OPENAI_REALTIME_TEXT_INPUT_PER_1M || 4),
+    textOutput: Number(process.env.OPENAI_REALTIME_TEXT_OUTPUT_PER_1M || 16),
+    audioInput: Number(process.env.OPENAI_REALTIME_AUDIO_INPUT_PER_1M || 32),
+    audioOutput: Number(process.env.OPENAI_REALTIME_AUDIO_OUTPUT_PER_1M || 64),
+    cachedInput: Number(process.env.OPENAI_REALTIME_CACHED_INPUT_PER_1M || 0.4)
+  };
+
+  const total =
+    (textInputTokens / 1_000_000) * price.textInput +
+    (audioInputTokens / 1_000_000) * price.audioInput +
+    (textOutputTokens / 1_000_000) * price.textOutput +
+    (audioOutputTokens / 1_000_000) * price.audioOutput +
+    ((cachedTextTokens + cachedAudioTokens) / 1_000_000) * price.cachedInput;
+
+  return {
+    total: roundUsd(total),
+    tokenBreakdown: {
+      textInputTokens,
+      audioInputTokens,
+      textOutputTokens,
+      audioOutputTokens,
+      cachedInputTokens: cachedTextTokens + cachedAudioTokens
+    },
+    pricePerMillion: price
+  };
+}
+
+function roundUsd(value) {
+  return Math.round(value * 1_000_000) / 1_000_000;
 }

@@ -65,8 +65,10 @@ The first implemented milestone is a dependency-light LiveKit room test:
   publish quiet synthetic audio/video tracks, and emit latency events.
 - `apps/agent/room-agent.mjs` is the first server-side Node participant skeleton
   for replacing the browser simulator with a real agent process.
-- OpenAI Realtime and avatar-worker streaming are intentionally not connected
-  yet.
+- In Realtime mode, the Node agent can publish OpenAI Realtime speech audio,
+  capture bounded microphone turns, emit agent state events, and log per-turn
+  usage/cost estimates.
+- Avatar-worker streaming is intentionally not connected yet.
 
 ### LiveKit Cloud vs Local LiveKit
 
@@ -91,6 +93,20 @@ AVATAR_LAB_PORT=5174
 AVATAR_LAB_DEFAULT_ROOM=psyche-avatar-lab
 AVATAR_LAB_TOKEN_TTL_SECONDS=3600
 OPENAI_API_KEY=
+AVATAR_AGENT_MODE=placeholder
+AVATAR_AGENT_LISTEN_SECONDS=4
+AVATAR_AGENT_MAX_TURNS=3
+AVATAR_AGENT_MAX_WAIT_SECONDS=20
+AVATAR_AGENT_VAD_THRESHOLD=250
+AVATAR_AGENT_VAD_MIN_SPEECH_MS=300
+AVATAR_AGENT_VAD_SILENCE_MS=900
+AVATAR_AGENT_INTERRUPT_ENABLED=true
+AVATAR_AGENT_INTERRUPT_MIN_SPEECH_MS=100
+AVATAR_AGENT_OUTPUT_QUEUE_MS=120
+AVATAR_AGENT_GREETING_ENABLED=false
+AVATAR_AGENT_MOCK_AVATAR_ENABLED=true
+AVATAR_AGENT_MOCK_AVATAR_GAIN=18
+AVATAR_AGENT_MOCK_AVATAR_DECAY=0.72
 ```
 
 Do not commit `.env` or provider API keys.
@@ -139,16 +155,62 @@ node apps/agent/room-agent.mjs
 The web UI should show `psyche-node-agent` as a remote participant with
 placeholder audio/video tracks and recurring latency events.
 
+In the Codex desktop shell on macOS, use `/opt/homebrew/bin/node` for
+`room-agent.mjs` if the bundled app Node cannot load LiveKit's native binding.
+
 With `OPENAI_API_KEY` set, run the same process in Realtime greeting mode:
 
 ```sh
 AVATAR_AGENT_MODE=realtime node apps/agent/room-agent.mjs
 ```
 
-This replaces placeholder audio with OpenAI Realtime-generated greeting audio.
-When a browser publishes microphone audio, the agent forwards the first
-`AVATAR_AGENT_LISTEN_SECONDS` seconds to OpenAI Realtime and requests an audio
-response. Full continuous turn-taking is the next milestone.
+This replaces placeholder audio with OpenAI Realtime-generated speech. When a
+browser publishes microphone audio, the agent runs a bounded fixed-window turn
+loop:
+
+```txt
+listening -> thinking -> speaking -> idle
+```
+
+Each turn waits for speech with a simple RMS VAD gate, captures up to
+`AVATAR_AGENT_LISTEN_SECONDS` seconds after speech starts, and sends it to
+OpenAI Realtime. While the AI is speaking, the next listen cycle keeps watching
+for user speech. If speech is detected, the agent sends `response.cancel` and
+treats the detected audio as the next user turn. Interrupts also clear the
+LiveKit audio output queue. The loop stops after `AVATAR_AGENT_MAX_TURNS`
+successful user turns to keep R&D cost predictable.
+
+For a lower-cost smoke test:
+
+```sh
+AVATAR_AGENT_MODE=realtime AVATAR_AGENT_GREETING_ENABLED=false AVATAR_AGENT_LISTEN_SECONDS=4 AVATAR_AGENT_MAX_TURNS=2 node apps/agent/room-agent.mjs
+```
+
+The agent logs each `response.done` usage payload plus an `estimatedCostUsd`
+object so short R&D turns can be watched against the remaining OpenAI credit.
+
+### Mock Avatar Video
+
+Before A100/MuseTalk is available, the Node agent publishes a placeholder
+talking-face video track. In Realtime mode, OpenAI output audio RMS drives the
+mock avatar mouth level:
+
+```txt
+OpenAI Realtime audio delta
+  -> output RMS
+  -> mock mouth level
+  -> LiveKit video frame
+```
+
+This proves the full transport shape before GPU inference:
+
+```txt
+Browser mic -> LiveKit -> Node agent -> OpenAI Realtime
+  -> AI audio + mock avatar video -> LiveKit -> Browser
+```
+
+Later, replace the mock mouth-level frame generator with MuseTalk frames from
+`avatar-worker`; the LiveKit publishing surface can stay the same.
 
 ### Check
 

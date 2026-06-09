@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "Lip-sync benchmark placeholder."
-echo "Expected metrics: warmup time, first-frame latency, FPS, GPU memory, sync drift."
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 
+exec "$PYTHON_BIN" "$ROOT_DIR/apps/avatar-worker/benchmark_lipsync.py" "$@"
