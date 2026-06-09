@@ -44,6 +44,17 @@ button:disabled {
   opacity: 0.45;
 }
 
+.secondary-link {
+  display: grid;
+  min-height: 2.55rem;
+  place-items: center;
+  border: 1px solid #4b554f;
+  border-radius: 7px;
+  color: #f4f2ec;
+  text-decoration: none;
+  font-weight: 750;
+}
+
 input {
   width: 100%;
   min-height: 2.75rem;
@@ -67,6 +78,10 @@ label {
   gap: 1rem;
   min-height: 100vh;
   padding: 1rem;
+}
+
+.sim-shell {
+  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
 }
 
 .panel,
@@ -285,6 +300,10 @@ h2 {
   gap: 0.55rem;
   max-height: 46vh;
   overflow: auto;
+}
+
+.sim-telemetry .event-log {
+  max-height: calc(100vh - 7rem);
 }
 
 .event-log li {

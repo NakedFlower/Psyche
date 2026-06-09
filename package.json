@@ -4,7 +4,11 @@
   "scripts": {
     "dev:tavus": "node apps/ai-demo/server/server.js",
     "dev:avatar": "node apps/agent/server.js",
-    "check:avatar": "node --check apps/agent/server.js && node --check apps/web/src/main.js"
+    "dev:avatar:agent": "node apps/agent/room-agent.mjs",
+    "check:avatar": "node --check apps/agent/server.js && node --check apps/agent/room-agent.mjs && node --check apps/web/src/main.js && node --check apps/web/src/agent-sim.js"
+  },
+  "dependencies": {
+    "@livekit/rtc-node": "^0.13.14"
   },
   "engines": {
     "node": ">=18"

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Psyche Agent Simulator</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <main class="shell sim-shell">
+      <section class="panel control-panel">
+        <div>
+          <p class="eyebrow">Psyche Avatar Lab</p>
+          <h1>Agent Simulator</h1>
+        </div>
+
+        <form id="simForm" class="join-form">
+          <label>
+            Token server
+            <input id="tokenEndpoint" value="/api/livekit/token" />
+          </label>
+          <label>
+            Room
+            <input id="roomName" value="psyche-avatar-lab" />
+          </label>
+          <label>
+            Identity
+            <input id="identity" value="psyche-agent-sim" />
+          </label>
+          <div class="button-row">
+            <button id="joinButton" type="submit">Join as Agent</button>
+            <button id="leaveButton" type="button" disabled>Leave</button>
+          </div>
+        </form>
+
+        <div class="status-grid">
+          <div>
+            <span>Connection</span>
+            <strong id="connectionState">disconnected</strong>
+          </div>
+          <div>
+            <span>Room</span>
+            <strong id="activeRoom">-</strong>
+          </div>
+          <div>
+            <span>Audio track</span>
+            <strong id="audioTrackState">not published</strong>
+          </div>
+          <div>
+            <span>Events</span>
+            <strong id="eventCount">0</strong>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel telemetry-panel sim-telemetry">
+        <div class="section-head">
+          <h2>Agent Events</h2>
+          <button id="sendEventButton" type="button" disabled>Send Event</button>
+        </div>
+        <ol id="eventLog" class="event-log">
+          <li>Waiting to join as agent simulator</li>
+        </ol>
+      </aside>
+    </main>
+
+    <script type="module" src="/src/agent-sim.js"></script>
+  </body>
+</html>

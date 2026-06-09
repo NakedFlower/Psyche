@@ -7,7 +7,8 @@ import {
 const state = {
   room: null,
   remoteElements: new Map(),
-  localElements: []
+  localElements: [],
+  embeddedAgent: null
 };
 
 const elements = {
@@ -19,6 +20,7 @@ const elements = {
   microphoneEnabled: document.getElementById("microphoneEnabled"),
   joinButton: document.getElementById("joinButton"),
   leaveButton: document.getElementById("leaveButton"),
+  startEmbeddedAgentButton: document.getElementById("startEmbeddedAgentButton"),
   refreshButton: document.getElementById("refreshButton"),
   sendLatencyButton: document.getElementById("sendLatencyButton"),
   connectionState: document.getElementById("connectionState"),
@@ -41,6 +43,10 @@ elements.form.addEventListener("submit", async (event) => {
 
 elements.leaveButton.addEventListener("click", async () => {
   await leaveRoom();
+});
+
+elements.startEmbeddedAgentButton.addEventListener("click", async () => {
+  await startEmbeddedAgentSimulator();
 });
 
 elements.refreshButton.addEventListener("click", () => {
@@ -118,6 +124,7 @@ async function joinRoom() {
     elements.activeRoom.textContent = session.roomName;
     elements.localParticipantName.textContent = session.identity;
     elements.leaveButton.disabled = false;
+    elements.startEmbeddedAgentButton.disabled = false;
     elements.refreshButton.disabled = false;
     elements.sendLatencyButton.disabled = false;
     appendEvent("system", `Joined ${session.roomName} as ${session.identity}`);
@@ -130,6 +137,8 @@ async function joinRoom() {
 }
 
 async function leaveRoom() {
+  await stopEmbeddedAgentSimulator();
+
   if (state.room) {
     state.room.disconnect();
     state.room = null;
@@ -141,6 +150,8 @@ async function leaveRoom() {
   state.localElements = [];
 
   elements.leaveButton.disabled = true;
+  elements.startEmbeddedAgentButton.disabled = true;
+  elements.startEmbeddedAgentButton.textContent = "Start embedded agent sim";
   elements.refreshButton.disabled = true;
   elements.sendLatencyButton.disabled = true;
   elements.activeRoom.textContent = "-";
@@ -149,6 +160,238 @@ async function leaveRoom() {
   elements.remoteTrackCount.textContent = "0";
   updateConnectionState("disconnected");
   renderParticipants();
+}
+
+async function startEmbeddedAgentSimulator() {
+  if (!state.room || state.embeddedAgent) return;
+
+  elements.startEmbeddedAgentButton.disabled = true;
+  elements.startEmbeddedAgentButton.textContent = "Starting agent...";
+  appendEvent("system", "Starting embedded agent simulator");
+
+  try {
+    const tokenResponse = await fetch(elements.tokenEndpoint.value.trim(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        roomName: state.room.name || elements.roomName.value.trim(),
+        identity: `psyche-agent-sim-${Math.random().toString(16).slice(2, 6)}`,
+        name: "Psyche Embedded Agent Simulator"
+      })
+    });
+    const session = await tokenResponse.json();
+
+    if (!tokenResponse.ok) {
+      throw new Error(session.error || JSON.stringify(session));
+    }
+
+    const agentRoom = new Room({
+      adaptiveStream: true,
+      dynacast: true
+    });
+
+    await agentRoom.connect(session.url, session.token);
+    const audio = await publishSyntheticAgentAudio(agentRoom);
+
+    const eventTimer = window.setInterval(() => {
+      publishAgentLatencyEvent(agentRoom, "interval").catch((error) => {
+        appendEvent("agent-error", error.message);
+      });
+    }, 5000);
+
+    state.embeddedAgent = {
+      room: agentRoom,
+      ...audio,
+      eventTimer
+    };
+
+    await publishAgentLatencyEvent(agentRoom, "join");
+    appendEvent("system", `Embedded agent joined as ${session.identity}`);
+    elements.startEmbeddedAgentButton.textContent = "Agent sim running";
+  } catch (error) {
+    appendEvent("error", error.message);
+    await stopEmbeddedAgentSimulator();
+    elements.startEmbeddedAgentButton.disabled = false;
+    elements.startEmbeddedAgentButton.textContent = "Start embedded agent sim";
+  }
+}
+
+async function stopEmbeddedAgentSimulator() {
+  if (!state.embeddedAgent) return;
+
+  const agent = state.embeddedAgent;
+  state.embeddedAgent = null;
+
+  if (agent.eventTimer) {
+    window.clearInterval(agent.eventTimer);
+  }
+
+  if (agent.oscillator) {
+    agent.oscillator.stop();
+    agent.oscillator.disconnect();
+  }
+
+  if (agent.gain) {
+    agent.gain.disconnect();
+  }
+
+  if (agent.animationFrame) {
+    window.cancelAnimationFrame(agent.animationFrame);
+  }
+
+  if (agent.videoStream) {
+    for (const track of agent.videoStream.getTracks()) {
+      track.stop();
+    }
+  }
+
+  if (agent.audioStream) {
+    for (const track of agent.audioStream.getTracks()) {
+      track.stop();
+    }
+  }
+
+  if (agent.audioContext) {
+    await agent.audioContext.close();
+  }
+
+  if (agent.room) {
+    agent.room.disconnect();
+  }
+}
+
+async function publishSyntheticAgentAudio(room) {
+  const audioContext = new AudioContext();
+  const audioDestination = audioContext.createMediaStreamDestination();
+  const oscillator = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+
+  oscillator.type = "sine";
+  oscillator.frequency.value = 220;
+  gain.gain.value = 0.015;
+  oscillator.connect(gain);
+  gain.connect(audioDestination);
+  oscillator.start();
+
+  const [audioTrack] = audioDestination.stream.getAudioTracks();
+  await room.localParticipant.publishTrack(audioTrack, {
+    name: "agent-placeholder-audio",
+    source: Track.Source.Microphone
+  });
+
+  const video = createSyntheticAgentVideo();
+  const [videoTrack] = video.stream.getVideoTracks();
+  await room.localParticipant.publishTrack(videoTrack, {
+    name: "agent-placeholder-video",
+    source: Track.Source.Camera
+  });
+
+  return {
+    audioContext,
+    oscillator,
+    gain,
+    audioStream: audioDestination.stream,
+    videoStream: video.stream,
+    animationFrame: video.animationFrame
+  };
+}
+
+function createSyntheticAgentVideo() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 960;
+  canvas.height = 540;
+  const context = canvas.getContext("2d");
+  const stream = canvas.captureStream(24);
+  let animationFrame = null;
+
+  const draw = () => {
+    const now = performance.now();
+    const pulse = (Math.sin(now / 220) + 1) / 2;
+    const talk = Math.abs(Math.sin(now / 95));
+
+    context.fillStyle = "#101513";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
+    gradient.addColorStop(0, "#223e3b");
+    gradient.addColorStop(0.58, "#17201d");
+    gradient.addColorStop(1, "#533127");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    context.fillStyle = "rgba(244, 242, 236, 0.08)";
+    for (let i = 0; i < 8; i += 1) {
+      context.beginPath();
+      context.arc(120 + i * 120, 80 + Math.sin(now / 600 + i) * 18, 2 + i * 0.5, 0, Math.PI * 2);
+      context.fill();
+    }
+
+    context.save();
+    context.translate(canvas.width / 2, canvas.height / 2 - 10);
+
+    context.fillStyle = "#e7e0d1";
+    context.beginPath();
+    context.arc(0, -20, 122 + pulse * 3, 0, Math.PI * 2);
+    context.fill();
+
+    context.fillStyle = "#24302d";
+    context.beginPath();
+    context.arc(-42, -42, 10, 0, Math.PI * 2);
+    context.arc(42, -42, 10, 0, Math.PI * 2);
+    context.fill();
+
+    context.strokeStyle = "#24302d";
+    context.lineWidth = 10;
+    context.lineCap = "round";
+    context.beginPath();
+    context.moveTo(-34, 38);
+    context.quadraticCurveTo(0, 58 + talk * 28, 34, 38);
+    context.stroke();
+
+    context.strokeStyle = "#c9e86a";
+    context.lineWidth = 5;
+    context.beginPath();
+    context.arc(0, -20, 150 + pulse * 14, 0, Math.PI * 2);
+    context.stroke();
+
+    context.restore();
+
+    context.fillStyle = "#f4f2ec";
+    context.font = "700 30px Inter, system-ui, sans-serif";
+    context.textAlign = "center";
+    context.fillText("Psyche Agent Simulator", canvas.width / 2, canvas.height - 76);
+
+    context.fillStyle = "#aeb8b1";
+    context.font = "22px Inter, system-ui, sans-serif";
+    context.fillText("placeholder video track for GPT Realtime avatar", canvas.width / 2, canvas.height - 42);
+
+    animationFrame = window.requestAnimationFrame(draw);
+  };
+
+  draw();
+
+  return {
+    stream,
+    animationFrame
+  };
+}
+
+async function publishAgentLatencyEvent(room, reason) {
+  const event = {
+    type: "latency.metric",
+    sessionId: room.name || "psyche-avatar-lab",
+    name: "webrtc_publish",
+    valueMs: Math.round(performance.now() % 1000),
+    at: Date.now(),
+    reason
+  };
+
+  await room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify(event)), {
+    reliable: true,
+    topic: "psyche.latency"
+  });
 }
 
 function bindRoomEvents(room) {

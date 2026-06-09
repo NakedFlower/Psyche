@@ -46,3 +46,15 @@ The UI can:
 - Publish local microphone/camera tracks.
 - Render remote audio/video tracks.
 - Show participants, connection state, track counts, and LiveKit data-channel events.
+- Start an embedded agent simulator from the main UI for single-browser testing.
+- Open `/agent-sim.html` as a browser-based stand-in for the future AI agent.
+
+## Agent Simulator
+
+The main UI's "Start embedded agent sim" button creates a second LiveKit room
+connection in the same page, publishes quiet synthetic audio plus a generated
+placeholder video track, and emits `latency.metric` data-channel events. This
+makes it possible to verify remote track rendering without opening a second
+browser.
+
+`/agent-sim.html` provides the same behavior as a separate browser page.

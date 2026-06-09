@@ -58,6 +58,13 @@ The first implemented milestone is a dependency-light LiveKit room test:
 - `apps/web` joins a LiveKit room, publishes local microphone/camera tracks,
   renders remote tracks, lists participants, and displays data-channel latency
   events.
+- The main UI can start an embedded agent simulator that joins the same room,
+  publishes quiet placeholder audio plus a generated placeholder video track,
+  and emits latency events.
+- `apps/web/agent-sim.html` can join the same room as a stand-in AI participant,
+  publish quiet synthetic audio/video tracks, and emit latency events.
+- `apps/agent/room-agent.mjs` is the first server-side Node participant skeleton
+  for replacing the browser simulator with a real agent process.
 - OpenAI Realtime and avatar-worker streaming are intentionally not connected
   yet.
 
@@ -104,6 +111,44 @@ http://127.0.0.1:5174
 
 To test remote tracks before the AI agent exists, open the same URL in two
 browser windows and join the same room with different identities.
+
+To test the future AI-agent slot in one browser, join from the main UI with
+Camera/Mic off and click:
+
+```txt
+Start embedded agent sim
+```
+
+The main UI should show the simulator as a participant, render its remote audio
+and video tracks, and receive its latency events.
+
+To test the same flow as a separate browser page, open:
+
+```txt
+http://127.0.0.1:5174/agent-sim.html
+```
+
+To test the real Node agent skeleton, install dependencies and run it in a
+second terminal while the web server is running:
+
+```sh
+npm install
+node apps/agent/room-agent.mjs
+```
+
+The web UI should show `psyche-node-agent` as a remote participant with
+placeholder audio/video tracks and recurring latency events.
+
+With `OPENAI_API_KEY` set, run the same process in Realtime greeting mode:
+
+```sh
+AVATAR_AGENT_MODE=realtime node apps/agent/room-agent.mjs
+```
+
+This replaces placeholder audio with OpenAI Realtime-generated greeting audio.
+When a browser publishes microphone audio, the agent forwards the first
+`AVATAR_AGENT_LISTEN_SECONDS` seconds to OpenAI Realtime and requests an audio
+response. Full continuous turn-taking is the next milestone.
 
 ### Check
 
