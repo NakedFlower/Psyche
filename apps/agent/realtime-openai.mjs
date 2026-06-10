@@ -4,9 +4,11 @@ export async function createOpenAIRealtimeAudioPump({
   voice,
   instructions,
   prompt,
+  outputMode = "audio",
   audioSource,
   clearAudioOutput,
   onOutputAudioLevel,
+  onOutputText,
   AudioFrame,
   log
 }) {
@@ -23,6 +25,7 @@ export async function createOpenAIRealtimeAudioPump({
     optionalProtocol("openai-project", process.env.OPENAI_PROJECT_ID)
   ].filter(Boolean);
   const ws = new WebSocketImpl(url, protocols);
+  const voiceLabel = getVoiceLabel(voice);
 
   let closed = false;
   let responseRequested = false;
@@ -34,30 +37,43 @@ export async function createOpenAIRealtimeAudioPump({
   let inputChunks = 0;
   let inputCommitted = false;
   const inputBuffers = [];
+  let outputText = "";
 
   addSocketListener(ws, "open", () => {
-    log("openai.realtime.connected", { model, voice });
+    log("openai.realtime.connected", { model, voice: voiceLabel });
     send({
       type: "session.update",
       session: {
         type: "realtime",
         instructions,
-        output_modalities: ["audio"],
+        output_modalities: [outputMode],
         audio: {
           input: {
             format: {
               type: "audio/pcm",
               rate: 24000
             }
-          },
-          output: {
-            format: {
-              type: "audio/pcm",
-              rate: 24000
-            },
-            voice
           }
-        }
+        },
+        ...(outputMode === "audio"
+          ? {
+              audio: {
+                input: {
+                  format: {
+                    type: "audio/pcm",
+                    rate: 24000
+                  }
+                },
+                output: {
+                  format: {
+                    type: "audio/pcm",
+                    rate: 24000
+                  },
+                  voice
+                }
+              }
+            }
+          : {})
       }
     });
   });
@@ -113,7 +129,8 @@ export async function createOpenAIRealtimeAudioPump({
       return;
     }
 
-    if (event.type === "response.output_text.delta") {
+    if (event.type === "response.output_text.delta" || event.type === "response.text.delta") {
+      outputText += event.delta || "";
       log("openai.realtime.text_delta", { delta: event.delta });
       return;
     }
@@ -130,8 +147,16 @@ export async function createOpenAIRealtimeAudioPump({
         estimatedCostUsd: estimateRealtimeCostUsd(usage)
       });
       log("openai.realtime.event", { type: event.type });
+      if (outputMode === "text" && outputText.trim()) {
+        await onOutputText?.(outputText, {
+          reason: "response.done",
+          usage,
+          responseId: event.response?.id
+        });
+      }
       responseInFlight = false;
       resolveResponseDoneWaiters(event);
+      outputText = "";
       return;
     }
 
@@ -256,22 +281,28 @@ export async function createOpenAIRealtimeAudioPump({
 
   function sendResponseCreate(reason) {
     outputGeneration += 1;
+    outputText = "";
     responseInFlight = true;
+    const response = {
+      output_modalities: [outputMode],
+      instructions: reason === "greeting" ? prompt : undefined
+    };
+
+    if (outputMode === "audio") {
+      response.audio = {
+        output: {
+          format: {
+            type: "audio/pcm",
+            rate: 24000
+          },
+          voice
+        }
+      };
+    }
+
     send({
       type: "response.create",
-      response: {
-        output_modalities: ["audio"],
-        audio: {
-          output: {
-            format: {
-              type: "audio/pcm",
-              rate: 24000
-            },
-            voice
-          }
-        },
-        instructions: reason === "greeting" ? prompt : undefined
-      }
+      response
     });
   }
 
@@ -317,6 +348,12 @@ function addSocketListener(socket, eventName, handler) {
 
 function optionalProtocol(prefix, value) {
   return value ? `${prefix}.${value}` : null;
+}
+
+function getVoiceLabel(voice) {
+  if (typeof voice === "string") return voice;
+  if (voice?.id) return voice.id;
+  return "unknown";
 }
 
 function estimateRealtimeCostUsd(usage) {

@@ -1,0 +1,29 @@
+{
+  "targetYear": 10,
+  "weights": {
+    "idealFuture": 65,
+    "careerFocus": 70,
+    "directness": 45
+  },
+  "survey": {
+    "age": 21,
+    "mbti": "INTJ",
+    "currentSpace": "학교와 집, 그리고 밤에 혼자 작업하는 책상",
+    "desiredSpace": "서울의 조용한 작업실과 작은 스튜디오",
+    "values": ["성장", "자유", "진정성"],
+    "habits": ["늦게까지 몰입한다", "아이디어를 메모한다", "가끔 루틴이 무너진다"],
+    "goals": ["AI 제품 만들기", "경제적 선택권 만들기", "건강한 생활 리듬 만들기"],
+    "concerns": ["커리어 방향", "꾸준함 부족", "너무 늦은 건 아닐까 하는 불안"],
+    "strengths": ["문제를 오래 생각한다", "새로운 기술을 빨리 실험한다"],
+    "interests": ["AI 서비스 기획", "실시간 미디어", "사용자 경험"],
+    "routine": "아침은 불규칙하지만 밤에는 집중이 잘 된다",
+    "idealRoutine": "아침에 가볍게 몸을 깨우고 가장 중요한 작업 하나를 먼저 끝낸다",
+    "stressRelief": "산책하거나 조용한 음악을 들으며 생각을 정리한다",
+    "relationshipValues": ["신뢰", "서로의 성장을 응원하는 관계"],
+    "selfTalk": "더 잘해야 하는데 아직 부족한 것 같다고 자주 생각한다",
+    "advicePreference": "practical",
+    "voiceGender": "neutral",
+    "openaiVoiceId": "",
+    "longGame": "오래 지속 가능한 AI 제품을 만들고 싶다"
+  }
+}

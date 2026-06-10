@@ -8,6 +8,10 @@ const rootDir = path.resolve(__dirname, "../..");
 
 loadEnv(path.join(rootDir, ".env"));
 
+const personaConfig = await loadPersonaConfig(process.env.AVATAR_PERSONA_FILE);
+const { resolveVoiceProfile } = await import("./voice-profile.mjs");
+const voiceProfile = resolveVoiceProfile({ env: process.env, personaConfig });
+
 const config = {
   livekitUrl: process.env.LIVEKIT_URL,
   apiKey: process.env.LIVEKIT_API_KEY,
@@ -29,13 +33,22 @@ const config = {
   realtimeSampleRate: 24000,
   openaiApiKey: process.env.OPENAI_API_KEY,
   openaiModel: process.env.OPENAI_REALTIME_MODEL || "gpt-realtime",
-  openaiVoice: process.env.OPENAI_REALTIME_VOICE || "marin",
+  openaiVoice: voiceProfile.voice,
+  openaiVoiceLabel: voiceProfile.voiceLabel,
+  ttsProvider: process.env.AVATAR_AGENT_TTS_PROVIDER || "openai",
+  elevenLabsApiKey: process.env.ELEVENLABS_API_KEY,
+  elevenLabsVoiceId: process.env.ELEVENLABS_VOICE_ID,
+  elevenLabsModelId: process.env.ELEVENLABS_MODEL_ID || "eleven_multilingual_v2",
+  elevenLabsOutputFormat: process.env.ELEVENLABS_LIVEKIT_OUTPUT_FORMAT || "pcm_24000",
+  voiceProfile,
   openaiInstructions:
+    personaConfig?.realtimeInstructions ||
     process.env.OPENAI_REALTIME_INSTRUCTIONS ||
     "You are Psyche's future-self voice agent. Speak warmly and concisely in Korean unless the user asks otherwise.",
   openaiGreeting:
     process.env.AVATAR_AGENT_GREETING_ENABLED === "true"
       ? process.env.OPENAI_REALTIME_GREETING ||
+        personaConfig?.firstGreeting ||
         "짧게 한국어로 인사하고, 지금은 Psyche 실시간 아바타 에이전트 연결 테스트 중이라고 말해줘."
       : "",
   fps: Number(process.env.AVATAR_AGENT_FPS || 10),
@@ -73,6 +86,7 @@ const {
 const shutdownTasks = [];
 let shuttingDown = false;
 let realtimePump = null;
+let elevenLabsOutput = null;
 let listeningToUserAudio = false;
 let agentState = "idle";
 let avatarMouthLevel = 0;
@@ -150,7 +164,12 @@ await publishAgentState(room, "idle", {
   maxTurns: config.maxTurns,
   listenSeconds: config.listenSeconds,
   vadThreshold: config.vadThreshold,
-  interruptEnabled: config.interruptEnabled
+  interruptEnabled: config.interruptEnabled,
+  persona: personaConfig?.displayName || null,
+  voice: config.openaiVoiceLabel,
+  voiceMode: config.voiceProfile.mode,
+  voiceGender: config.voiceProfile.gender,
+  customVoice: config.voiceProfile.custom
 });
 
 async function publishRealtimeAudio(activeRoom) {
@@ -162,18 +181,38 @@ async function publishRealtimeAudio(activeRoom) {
   await activeRoom.localParticipant.publishTrack(track, options);
 
   const { createOpenAIRealtimeAudioPump } = await import("./realtime-openai.mjs");
+  if (config.ttsProvider === "elevenlabs") {
+    const { createElevenLabsLiveKitOutput } = await import("./elevenlabs-livekit.mjs");
+    elevenLabsOutput = createElevenLabsLiveKitOutput({
+      apiKey: config.elevenLabsApiKey,
+      voiceId: config.elevenLabsVoiceId,
+      modelId: config.elevenLabsModelId,
+      outputFormat: config.elevenLabsOutputFormat,
+      audioSource: source,
+      AudioFrame,
+      log,
+      onOutputAudioLevel: updateAvatarMouthLevel
+    });
+  }
+
   realtimePump = await createOpenAIRealtimeAudioPump({
     apiKey: config.openaiApiKey,
     model: config.openaiModel,
     voice: config.openaiVoice,
     instructions: config.openaiInstructions,
     prompt: config.openaiGreeting,
+    outputMode: config.ttsProvider === "elevenlabs" ? "text" : "audio",
     audioSource: source,
     clearAudioOutput: () => {
+      elevenLabsOutput?.cancel("clear-output");
       source.clearQueue();
       resetAvatarMouthLevel();
     },
     onOutputAudioLevel: updateAvatarMouthLevel,
+    onOutputText: async (text, metadata = {}) => {
+      if (!text.trim()) return;
+      await elevenLabsOutput?.speak(text, metadata);
+    },
     AudioFrame,
     log
   });
@@ -181,13 +220,24 @@ async function publishRealtimeAudio(activeRoom) {
   shutdownTasks.push(async () => {
     realtimePump?.close();
     realtimePump = null;
+    elevenLabsOutput?.cancel("shutdown");
+    elevenLabsOutput = null;
     await track.close();
   });
 
   log("audio.realtime.published", {
     sampleRate: config.realtimeSampleRate,
     model: config.openaiModel,
-    voice: config.openaiVoice,
+    ttsProvider: config.ttsProvider,
+    voice: config.openaiVoiceLabel,
+    elevenLabsVoiceId: config.ttsProvider === "elevenlabs" ? config.elevenLabsVoiceId : null,
+    elevenLabsModelId: config.ttsProvider === "elevenlabs" ? config.elevenLabsModelId : null,
+    elevenLabsOutputFormat:
+      config.ttsProvider === "elevenlabs" ? config.elevenLabsOutputFormat : null,
+    voiceMode: config.voiceProfile.mode,
+    voiceGender: config.voiceProfile.gender,
+    customVoice: config.voiceProfile.custom,
+    voiceFallbackReason: config.voiceProfile.fallbackReason,
     outputQueueMs: config.outputQueueMs
   });
 }
@@ -664,6 +714,10 @@ function validateConfig(values) {
   if (!values.apiKey) missing.push("LIVEKIT_API_KEY");
   if (!values.apiSecret) missing.push("LIVEKIT_API_SECRET");
   if (values.mode === "realtime" && !values.openaiApiKey) missing.push("OPENAI_API_KEY");
+  if (values.mode === "realtime" && values.ttsProvider === "elevenlabs") {
+    if (!values.elevenLabsApiKey) missing.push("ELEVENLABS_API_KEY");
+    if (!values.elevenLabsVoiceId) missing.push("ELEVENLABS_VOICE_ID");
+  }
 
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables: ${missing.join(", ")}`);
@@ -672,6 +726,38 @@ function validateConfig(values) {
   if (!["placeholder", "realtime"].includes(values.mode)) {
     throw new Error(`Invalid AVATAR_AGENT_MODE: ${values.mode}`);
   }
+
+  if (!["openai", "elevenlabs"].includes(values.ttsProvider)) {
+    throw new Error(`Invalid AVATAR_AGENT_TTS_PROVIDER: ${values.ttsProvider}`);
+  }
+}
+
+async function loadPersonaConfig(filePath) {
+  if (!filePath) return null;
+
+  const resolved = path.resolve(filePath);
+  if (!fs.existsSync(resolved)) {
+    throw new Error(`AVATAR_PERSONA_FILE does not exist: ${resolved}`);
+  }
+
+  const raw = JSON.parse(fs.readFileSync(resolved, "utf8"));
+  if (raw.realtimeInstructions) {
+    return {
+      displayName: raw.displayName || raw.predictedSelf?.displayName || "미래의 나",
+      firstGreeting: raw.predictedSelf?.firstGreeting,
+      realtimeInstructions: raw.realtimeInstructions,
+      voice: raw.voiceProfile || raw.voice || null
+    };
+  }
+
+  const { buildFutureSelfPersona } = await import("./persona-pipeline.mjs");
+  const persona = buildFutureSelfPersona(raw);
+  return {
+    displayName: persona.displayName,
+    firstGreeting: persona.predictedSelf.firstGreeting,
+    realtimeInstructions: persona.realtimeInstructions,
+    voice: persona.voiceProfile || null
+  };
 }
 
 function signLiveKitJwt({ apiKey, apiSecret, identity, name, grants, ttlSeconds }) {

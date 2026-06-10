@@ -23,6 +23,27 @@ const elements = {
   startEmbeddedAgentButton: document.getElementById("startEmbeddedAgentButton"),
   refreshButton: document.getElementById("refreshButton"),
   sendLatencyButton: document.getElementById("sendLatencyButton"),
+  personaForm: document.getElementById("personaForm"),
+  targetYear: document.getElementById("targetYear"),
+  surveyAge: document.getElementById("surveyAge"),
+  surveyMbti: document.getElementById("surveyMbti"),
+  voiceGender: document.getElementById("voiceGender"),
+  surveyValues: document.getElementById("surveyValues"),
+  surveyGoals: document.getElementById("surveyGoals"),
+  surveyConcerns: document.getElementById("surveyConcerns"),
+  surveyRoutine: document.getElementById("surveyRoutine"),
+  surveyLongGame: document.getElementById("surveyLongGame"),
+  weightIdeal: document.getElementById("weightIdeal"),
+  weightCareer: document.getElementById("weightCareer"),
+  weightDirect: document.getElementById("weightDirect"),
+  generatePersonaButton: document.getElementById("generatePersonaButton"),
+  voiceCloneForm: document.getElementById("voiceCloneForm"),
+  voiceSample: document.getElementById("voiceSample"),
+  voiceCloneName: document.getElementById("voiceCloneName"),
+  voiceCloneGender: document.getElementById("voiceCloneGender"),
+  voiceConsent: document.getElementById("voiceConsent"),
+  cloneVoiceButton: document.getElementById("cloneVoiceButton"),
+  setupOutput: document.getElementById("setupOutput"),
   connectionState: document.getElementById("connectionState"),
   activeRoom: document.getElementById("activeRoom"),
   localTrackState: document.getElementById("localTrackState"),
@@ -70,6 +91,16 @@ elements.sendLatencyButton.addEventListener("click", async () => {
     topic: "psyche.latency"
   });
   appendEvent("local", event);
+});
+
+elements.personaForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await generatePersona();
+});
+
+elements.voiceCloneForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await cloneVoiceFromUpload();
 });
 
 async function joinRoom() {
@@ -138,6 +169,143 @@ async function joinRoom() {
   } finally {
     setBusy(false);
   }
+}
+
+async function generatePersona() {
+  elements.generatePersonaButton.disabled = true;
+  elements.generatePersonaButton.textContent = "Generating...";
+  setSetupOutput("Generating persona...");
+
+  try {
+    const payload = buildPersonaPayload();
+    const response = await fetch("/api/persona/generate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || JSON.stringify(result));
+    }
+
+    setSetupOutput({
+      type: "persona.generated",
+      personaFile: result.personaFile,
+      displayName: result.displayName,
+      futureYear: result.futureYear,
+      futureAge: result.futureAge,
+      identityKeywords: result.identityKeywords,
+      firstGreeting: result.firstGreeting,
+      runWithPersona: `AVATAR_PERSONA_FILE=${result.personaFile} AVATAR_AGENT_MODE=realtime /opt/homebrew/bin/node apps/agent/room-agent.mjs`
+    });
+    appendEvent("persona", `Generated ${result.personaFile}`);
+  } catch (error) {
+    setSetupOutput({ type: "persona.error", message: error.message });
+    appendEvent("error", error.message);
+  } finally {
+    elements.generatePersonaButton.disabled = false;
+    elements.generatePersonaButton.textContent = "Generate persona";
+  }
+}
+
+async function cloneVoiceFromUpload() {
+  if (!elements.voiceConsent.checked) {
+    setSetupOutput({ type: "voice.error", message: "Confirm that this is your own voice sample." });
+    return;
+  }
+
+  const [file] = elements.voiceSample.files || [];
+  if (!file) {
+    setSetupOutput({ type: "voice.error", message: "Choose a wav or mp3 voice sample first." });
+    return;
+  }
+
+  elements.cloneVoiceButton.disabled = true;
+  elements.cloneVoiceButton.textContent = "Cloning...";
+  setSetupOutput(`Uploading ${file.name} and cloning voice...`);
+
+  try {
+    const form = new FormData();
+    form.append("sample", file);
+    form.append("name", elements.voiceCloneName.value.trim() || "Psyche Future Self Voice");
+    form.append("gender", elements.voiceCloneGender.value);
+    form.append("description", "Psyche user-owned voice clone for future-self avatar R&D.");
+    form.append("removeBackgroundNoise", "true");
+
+    const response = await fetch("/api/voice/clone", {
+      method: "POST",
+      body: form
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error ? JSON.stringify(result) : JSON.stringify(result));
+    }
+
+    setSetupOutput({
+      type: "voice.cloned",
+      voiceId: result.voiceId,
+      voiceFile: result.voiceFile,
+      sampleFile: result.sampleFile,
+      requiresVerification: result.requiresVerification,
+      env: [
+        `ELEVENLABS_VOICE_ID=${result.voiceId}`,
+        "AVATAR_AGENT_TTS_PROVIDER=elevenlabs",
+        "ELEVENLABS_LIVEKIT_OUTPUT_FORMAT=pcm_24000"
+      ],
+      runWithClonedVoice:
+        `AVATAR_AGENT_MODE=realtime AVATAR_AGENT_TTS_PROVIDER=elevenlabs ELEVENLABS_VOICE_ID=${result.voiceId} /opt/homebrew/bin/node apps/agent/room-agent.mjs`
+    });
+    appendEvent("voice", `Cloned voice ${result.voiceId}`);
+  } catch (error) {
+    setSetupOutput({ type: "voice.error", message: error.message });
+    appendEvent("error", error.message);
+  } finally {
+    elements.cloneVoiceButton.disabled = false;
+    elements.cloneVoiceButton.textContent = "Clone voice";
+  }
+}
+
+function buildPersonaPayload() {
+  return {
+    targetYear: Number(elements.targetYear.value || 10),
+    weights: {
+      idealFuture: Number(elements.weightIdeal.value || 60),
+      careerFocus: Number(elements.weightCareer.value || 60),
+      directness: Number(elements.weightDirect.value || 45)
+    },
+    survey: {
+      age: Number(elements.surveyAge.value || 0) || null,
+      mbti: elements.surveyMbti.value.trim(),
+      values: splitList(elements.surveyValues.value),
+      goals: splitList(elements.surveyGoals.value),
+      concerns: splitList(elements.surveyConcerns.value),
+      habits: [],
+      routine: elements.surveyRoutine.value.trim(),
+      idealRoutine: "",
+      stressRelief: "",
+      strengths: [],
+      interests: splitList(elements.surveyGoals.value),
+      relationshipValues: [],
+      selfTalk: "",
+      advicePreference: "practical",
+      voiceGender: elements.voiceGender.value,
+      longGame: elements.surveyLongGame.value.trim()
+    }
+  };
+}
+
+function splitList(value) {
+  return String(value || "")
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function setSetupOutput(value) {
+  elements.setupOutput.textContent =
+    typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }
 
 async function leaveRoom() {

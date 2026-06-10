@@ -21,7 +21,9 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
@@ -55,7 +57,9 @@ button:disabled {
   font-weight: 750;
 }
 
-input {
+input,
+select,
+textarea {
   width: 100%;
   min-height: 2.75rem;
   border: 1px solid #3a413e;
@@ -63,6 +67,11 @@ input {
   padding: 0.68rem 0.8rem;
   background: #171c1a;
   color: #f4f2ec;
+}
+
+textarea {
+  min-height: 4.25rem;
+  resize: vertical;
 }
 
 label {
@@ -74,7 +83,8 @@ label {
 
 .shell {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr) minmax(280px, 380px);
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr) minmax(280px, 380px);
+  grid-template-rows: auto 1fr;
   gap: 1rem;
   min-height: 100vh;
   padding: 1rem;
@@ -92,11 +102,32 @@ label {
 }
 
 .control-panel,
+.setup-panel,
 .telemetry-panel {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
   padding: 1rem;
+}
+
+.control-panel {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.setup-panel {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.stage {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.telemetry-panel {
+  grid-column: 3;
+  grid-row: 1 / span 2;
 }
 
 .eyebrow {
@@ -125,6 +156,46 @@ h2 {
 .join-form {
   display: grid;
   gap: 0.9rem;
+}
+
+.setup-form {
+  display: grid;
+  gap: 0.72rem;
+}
+
+.form-grid,
+.slider-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.72rem;
+}
+
+.slider-grid {
+  grid-template-columns: 1fr;
+}
+
+.setup-output {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.setup-output pre {
+  min-height: 7rem;
+  max-height: 18rem;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid #303934;
+  border-radius: 7px;
+  padding: 0.75rem;
+  background: #101513;
+  color: #f4f2ec;
+  font-size: 0.78rem;
+}
+
+.consent-row {
+  color: #f4f2ec;
 }
 
 .switch-row,
@@ -330,6 +401,15 @@ h2 {
 @media (max-width: 1120px) {
   .shell {
     grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+
+  .control-panel,
+  .setup-panel,
+  .stage,
+  .telemetry-panel {
+    grid-column: auto;
+    grid-row: auto;
   }
 
   .stage {
@@ -347,7 +427,8 @@ h2 {
   }
 
   .status-grid,
-  .media-grid {
+  .media-grid,
+  .form-grid {
     grid-template-columns: 1fr;
   }
 

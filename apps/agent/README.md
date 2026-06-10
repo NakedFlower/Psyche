@@ -52,6 +52,18 @@ AVATAR_LAB_PORT=5174
 AVATAR_LAB_DEFAULT_ROOM=psyche-avatar-lab
 AVATAR_LAB_TOKEN_TTL_SECONDS=3600
 OPENAI_API_KEY=
+ELEVENLABS_API_KEY=
+ELEVENLABS_VOICE_ID=
+ELEVENLABS_MODEL_ID=eleven_multilingual_v2
+ELEVENLABS_LIVEKIT_OUTPUT_FORMAT=pcm_24000
+AVATAR_PERSONA_FILE=
+AVATAR_VOICE_MODE=auto
+AVATAR_USER_VOICE_GENDER=neutral
+AVATAR_AGENT_TTS_PROVIDER=openai
+OPENAI_REALTIME_VOICE_FEMALE=marin
+OPENAI_REALTIME_VOICE_MALE=cedar
+OPENAI_REALTIME_VOICE_NEUTRAL=marin
+OPENAI_CUSTOM_VOICE_ID=
 AVATAR_AGENT_LISTEN_SECONDS=4
 AVATAR_AGENT_MAX_TURNS=3
 AVATAR_AGENT_MAX_WAIT_SECONDS=20
@@ -162,3 +174,114 @@ For low-cost testing with greeting disabled:
 ```sh
 AVATAR_AGENT_MODE=realtime AVATAR_AGENT_GREETING_ENABLED=false AVATAR_AGENT_LISTEN_SECONDS=4 AVATAR_AGENT_MAX_TURNS=2 node apps/agent/room-agent.mjs
 ```
+
+## Persona Pipeline
+
+The agent can build a future-self persona from a current-self survey JSON.
+Users do not directly choose every future detail; the pipeline infers a future
+self from current habits, values, goals, concerns, and the three Psyche weights.
+
+Generate a persona JSON from the sample survey:
+
+```sh
+node apps/agent/generate-persona.mjs --input apps/agent/persona.sample.json --output runs/personas/sample-persona.json
+```
+
+Preview the generated Realtime system prompt:
+
+```sh
+node apps/agent/generate-persona.mjs --input apps/agent/persona.sample.json --print-prompt
+```
+
+Run the room agent with that persona:
+
+```sh
+AVATAR_PERSONA_FILE=runs/personas/sample-persona.json AVATAR_AGENT_MODE=realtime node apps/agent/room-agent.mjs
+```
+
+## Voice Pipeline
+
+The fast default path keeps OpenAI Realtime as the speech engine and chooses a
+built-in voice:
+
+```sh
+AVATAR_VOICE_MODE=auto AVATAR_USER_VOICE_GENDER=female
+AVATAR_VOICE_MODE=auto AVATAR_USER_VOICE_GENDER=male
+```
+
+Default built-in mapping:
+
+- `female` -> `OPENAI_REALTIME_VOICE_FEMALE=marin`
+- `male` -> `OPENAI_REALTIME_VOICE_MALE=cedar`
+- `neutral` -> `OPENAI_REALTIME_VOICE_NEUTRAL=marin`
+
+When OpenAI custom voices are enabled for the organization, keep the same
+Realtime path and pass the custom voice id:
+
+```sh
+AVATAR_VOICE_MODE=custom OPENAI_CUSTOM_VOICE_ID=voice_123abc
+```
+
+If `AVATAR_VOICE_MODE=custom` is set without `OPENAI_CUSTOM_VOICE_ID`, the agent
+falls back to the gender-based built-in voice and logs the fallback reason.
+
+### ElevenLabs Voice Clone Smoke Test
+
+ElevenLabs is available as an experimental custom-voice path. The first step is
+not full realtime integration; it is a safe clone + TTS smoke test.
+
+Create a voice clone from a user-owned sample:
+
+```sh
+node apps/agent/elevenlabs-voice.mjs clone \
+  --sample runs/voice-samples/my-voice.wav \
+  --name "Psyche Future Self Voice" \
+  --gender neutral \
+  --confirm-consent \
+  --output runs/voices/elevenlabs-my-voice.json
+```
+
+Generate a Korean TTS sample from that voice:
+
+```sh
+node apps/agent/elevenlabs-voice.mjs synthesize \
+  --voice-id <voice_id_from_json> \
+  --text "나는 10년 뒤의 너야. 오늘은 다음 한 걸음부터 같이 보자." \
+  --output runs/voices/elevenlabs-sample.mp3
+```
+
+Keep `ELEVENLABS_API_KEY` only in `.env`. Do not commit generated voice records
+or audio samples under `runs/`.
+
+### ElevenLabs LiveKit Agent Mode
+
+For latency experiments, the Realtime agent can use OpenAI Realtime for audio
+input and text generation, then synthesize the final answer through ElevenLabs
+and publish the generated PCM audio to the same LiveKit room.
+
+Add the cloned voice id to `.env`:
+
+```sh
+ELEVENLABS_VOICE_ID=IO0AviODTW9q2bmIfqqc
+AVATAR_AGENT_TTS_PROVIDER=elevenlabs
+ELEVENLABS_LIVEKIT_OUTPUT_FORMAT=pcm_24000
+```
+
+Run the agent:
+
+```sh
+AVATAR_AGENT_MODE=realtime AVATAR_AGENT_TTS_PROVIDER=elevenlabs node apps/agent/room-agent.mjs
+```
+
+If `.env` already contains `AVATAR_AGENT_MODE=realtime`,
+`AVATAR_AGENT_TTS_PROVIDER=elevenlabs`, `ELEVENLABS_VOICE_ID`, and
+`AVATAR_PERSONA_FILE`, the short command is enough:
+
+```sh
+/opt/homebrew/bin/node apps/agent/room-agent.mjs
+```
+
+This mode is intentionally slower than native OpenAI Realtime audio. The current
+pipeline waits for the model's text response, sends that text to ElevenLabs,
+then streams the returned PCM frames into LiveKit. Use it to validate cloned
+voice quality and end-to-end wiring before optimizing for streaming latency.

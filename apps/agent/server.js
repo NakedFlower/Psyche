@@ -37,6 +37,14 @@ const server = http.createServer(async (req, res) => {
       return createLiveKitToken(req, res);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/persona/generate") {
+      return createPersona(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/voice/clone") {
+      return cloneVoice(req, res);
+    }
+
     if (req.method === "GET" || req.method === "HEAD") {
       return serveStatic(url.pathname, res, req.method === "HEAD");
     }
@@ -95,6 +103,100 @@ async function createLiveKitToken(req, res) {
     roomName,
     identity,
     expiresInSeconds: tokenTtlSeconds
+  });
+}
+
+async function createPersona(req, res) {
+  const body = await readJson(req);
+  const { buildFutureSelfPersona } = await import("./persona-pipeline.mjs");
+  const persona = buildFutureSelfPersona(body);
+  const fileName = `persona-${Date.now()}.json`;
+  const output = path.resolve(rootDir, "runs/personas", fileName);
+  fs.mkdirSync(path.dirname(output), { recursive: true });
+  fs.writeFileSync(output, JSON.stringify(persona, null, 2) + "\n", "utf8");
+
+  return sendJson(res, 200, {
+    ok: true,
+    output,
+    personaFile: path.relative(rootDir, output),
+    displayName: persona.displayName,
+    futureYear: persona.futureYear,
+    futureAge: persona.futureAge,
+    identityKeywords: persona.predictedSelf.identityKeywords,
+    firstGreeting: persona.predictedSelf.firstGreeting,
+    realtimeInstructions: persona.realtimeInstructions
+  });
+}
+
+async function cloneVoice(req, res) {
+  if (!process.env.ELEVENLABS_API_KEY) {
+    return sendJson(res, 400, {
+      error: "Missing ElevenLabs environment variable",
+      missing: ["ELEVENLABS_API_KEY"]
+    });
+  }
+
+  const form = await readMultipartForm(req, { maxBytes: 35 * 1024 * 1024 });
+  const sample = form.files.sample;
+  if (!sample?.data?.length) {
+    return sendJson(res, 400, { error: "Missing voice sample file field: sample" });
+  }
+
+  const originalName = path.basename(sample.filename || "voice-sample.wav");
+  const safeName = originalName.replace(/[^\w.-]/g, "-").slice(0, 120) || "voice-sample.wav";
+  const samplePath = path.resolve(rootDir, "runs/voice-samples", `${Date.now()}-${safeName}`);
+  fs.mkdirSync(path.dirname(samplePath), { recursive: true });
+  fs.writeFileSync(samplePath, sample.data);
+
+  const voiceName = String(form.fields.name || "Psyche Future Self Voice").slice(0, 80);
+  const gender = String(form.fields.gender || "neutral").slice(0, 30);
+  const description = String(
+    form.fields.description || "Psyche user-owned voice clone for future-self avatar R&D."
+  ).slice(0, 500);
+
+  const elevenForm = new FormData();
+  elevenForm.append("name", voiceName);
+  elevenForm.append("description", description);
+  elevenForm.append("remove_background_noise", String(form.fields.removeBackgroundNoise === "true"));
+  elevenForm.append("labels", JSON.stringify({ app: "psyche", consent: "user-owned", gender }));
+  elevenForm.append("files", new Blob([sample.data]), safeName);
+
+  const response = await fetch("https://api.elevenlabs.io/v1/voices/add", {
+    method: "POST",
+    headers: {
+      "xi-api-key": process.env.ELEVENLABS_API_KEY
+    },
+    body: elevenForm
+  });
+  const result = await readFetchResponse(response);
+
+  if (!response.ok) {
+    return sendJson(res, response.status, {
+      error: "ElevenLabs voice clone failed",
+      details: result
+    });
+  }
+
+  const record = {
+    provider: "elevenlabs",
+    createdAt: new Date().toISOString(),
+    name: voiceName,
+    description,
+    gender,
+    voiceId: result.voice_id,
+    requiresVerification: Boolean(result.requires_verification),
+    sampleFile: samplePath
+  };
+  const output = path.resolve(rootDir, "runs/voices", `elevenlabs-${Date.now()}.json`);
+  fs.mkdirSync(path.dirname(output), { recursive: true });
+  fs.writeFileSync(output, JSON.stringify(record, null, 2) + "\n", "utf8");
+
+  return sendJson(res, 200, {
+    ok: true,
+    output,
+    voiceFile: path.relative(rootDir, output),
+    sampleFile: path.relative(rootDir, samplePath),
+    ...record
   });
 }
 
@@ -165,6 +267,85 @@ function readJson(req) {
     });
     req.on("error", reject);
   });
+}
+
+function readMultipartForm(req, { maxBytes }) {
+  return new Promise((resolve, reject) => {
+    const contentType = req.headers["content-type"] || "";
+    const match = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType);
+    if (!match) {
+      reject(new Error("Expected multipart/form-data"));
+      return;
+    }
+
+    const boundary = Buffer.from(`--${match[1] || match[2]}`);
+    const chunks = [];
+    let total = 0;
+
+    req.on("data", (chunk) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        req.destroy(new Error("Request body too large"));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      try {
+        resolve(parseMultipart(Buffer.concat(chunks), boundary));
+      } catch (error) {
+        reject(error);
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+function parseMultipart(body, boundary) {
+  const fields = {};
+  const files = {};
+  let cursor = 0;
+
+  while (cursor < body.length) {
+    const boundaryIndex = body.indexOf(boundary, cursor);
+    if (boundaryIndex === -1) break;
+    const next = boundaryIndex + boundary.length;
+    if (body.slice(next, next + 2).toString() === "--") break;
+
+    const headerStart = next + 2;
+    const headerEnd = body.indexOf(Buffer.from("\r\n\r\n"), headerStart);
+    if (headerEnd === -1) break;
+
+    const headers = body.slice(headerStart, headerEnd).toString("utf8");
+    const dataStart = headerEnd + 4;
+    const nextBoundary = body.indexOf(boundary, dataStart);
+    if (nextBoundary === -1) break;
+
+    const dataEnd = Math.max(dataStart, nextBoundary - 2);
+    const data = body.slice(dataStart, dataEnd);
+    const disposition = /content-disposition:\s*form-data;([^\r\n]+)/i.exec(headers)?.[1] || "";
+    const name = /name="([^"]+)"/i.exec(disposition)?.[1];
+    const filename = /filename="([^"]*)"/i.exec(disposition)?.[1];
+    const contentType = /content-type:\s*([^\r\n]+)/i.exec(headers)?.[1]?.trim() || "";
+
+    if (name && filename !== undefined) {
+      files[name] = { filename, contentType, data };
+    } else if (name) {
+      fields[name] = data.toString("utf8");
+    }
+
+    cursor = nextBoundary;
+  }
+
+  return { fields, files };
+}
+
+async function readFetchResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+  return response.text();
 }
 
 function sendJson(res, status, payload) {

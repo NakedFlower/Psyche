@@ -68,6 +68,8 @@ The first implemented milestone is a dependency-light LiveKit room test:
 - In Realtime mode, the Node agent can publish OpenAI Realtime speech audio,
   capture bounded microphone turns, emit agent state events, and log per-turn
   usage/cost estimates.
+- `apps/agent/persona-pipeline.mjs` turns a current-self survey plus Psyche
+  weights into a predicted future-self persona and Realtime system prompt.
 - Avatar-worker streaming is intentionally not connected yet.
 
 ### LiveKit Cloud vs Local LiveKit
@@ -93,6 +95,13 @@ AVATAR_LAB_PORT=5174
 AVATAR_LAB_DEFAULT_ROOM=psyche-avatar-lab
 AVATAR_LAB_TOKEN_TTL_SECONDS=3600
 OPENAI_API_KEY=
+AVATAR_PERSONA_FILE=
+AVATAR_VOICE_MODE=auto
+AVATAR_USER_VOICE_GENDER=neutral
+OPENAI_REALTIME_VOICE_FEMALE=marin
+OPENAI_REALTIME_VOICE_MALE=cedar
+OPENAI_REALTIME_VOICE_NEUTRAL=marin
+OPENAI_CUSTOM_VOICE_ID=
 AVATAR_AGENT_MODE=placeholder
 AVATAR_AGENT_LISTEN_SECONDS=4
 AVATAR_AGENT_MAX_TURNS=3
@@ -211,6 +220,35 @@ Browser mic -> LiveKit -> Node agent -> OpenAI Realtime
 
 Later, replace the mock mouth-level frame generator with MuseTalk frames from
 `avatar-worker`; the LiveKit publishing surface can stay the same.
+
+### Persona Pipeline
+
+Generate a future-self persona from a current-self survey:
+
+```sh
+node apps/agent/generate-persona.mjs --input apps/agent/persona.sample.json --output runs/personas/sample-persona.json
+```
+
+Then run the Realtime agent with that persona:
+
+```sh
+AVATAR_PERSONA_FILE=runs/personas/sample-persona.json AVATAR_AGENT_MODE=realtime node apps/agent/room-agent.mjs
+```
+
+### Voice Selection
+
+Keep OpenAI Realtime for the low-latency path. `AVATAR_VOICE_MODE=auto` chooses
+a built-in Realtime voice from `AVATAR_USER_VOICE_GENDER`. When OpenAI custom
+voice access is available, set `AVATAR_VOICE_MODE=custom` and
+`OPENAI_CUSTOM_VOICE_ID=voice_...` to use the same Realtime pipeline with the
+custom voice id.
+
+For ElevenLabs experiments, use the clone/TTS smoke CLI first:
+
+```sh
+node apps/agent/elevenlabs-voice.mjs clone --sample runs/voice-samples/my-voice.wav --name "Psyche Future Self Voice" --confirm-consent
+node apps/agent/elevenlabs-voice.mjs synthesize --voice-id <voice_id> --text "나는 10년 뒤의 너야."
+```
 
 ### Check
 

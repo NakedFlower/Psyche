@@ -69,6 +69,114 @@
         </div>
       </section>
 
+      <section class="panel setup-panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Future Self Setup</p>
+            <h2>Survey & Voice</h2>
+          </div>
+          <span>persona + clone</span>
+        </div>
+
+        <form id="personaForm" class="setup-form">
+          <div class="form-grid">
+            <label>
+              Target
+              <select id="targetYear">
+                <option value="10">10 years</option>
+                <option value="20">20 years</option>
+                <option value="30">30 years</option>
+              </select>
+            </label>
+            <label>
+              Age
+              <input id="surveyAge" inputmode="numeric" placeholder="21" />
+            </label>
+            <label>
+              MBTI
+              <input id="surveyMbti" placeholder="INTJ" />
+            </label>
+            <label>
+              Voice gender
+              <select id="voiceGender">
+                <option value="neutral">neutral</option>
+                <option value="female">female</option>
+                <option value="male">male</option>
+              </select>
+            </label>
+          </div>
+
+          <label>
+            Values
+            <input id="surveyValues" placeholder="성장, 자유, 진정성" />
+          </label>
+          <label>
+            Goals
+            <textarea id="surveyGoals" placeholder="AI 제품 만들기, 경제적 선택권 만들기"></textarea>
+          </label>
+          <label>
+            Current concerns
+            <textarea id="surveyConcerns" placeholder="커리어 방향, 꾸준함 부족, 불안"></textarea>
+          </label>
+          <label>
+            Habits & routine
+            <textarea id="surveyRoutine" placeholder="아침은 불규칙하지만 밤에는 집중이 잘 된다"></textarea>
+          </label>
+          <label>
+            Long game
+            <textarea id="surveyLongGame" placeholder="오래 지속 가능한 AI 제품을 만들고 싶다"></textarea>
+          </label>
+
+          <div class="slider-grid">
+            <label>
+              Ideal future
+              <input id="weightIdeal" type="range" min="0" max="100" value="65" />
+            </label>
+            <label>
+              Career focus
+              <input id="weightCareer" type="range" min="0" max="100" value="70" />
+            </label>
+            <label>
+              Directness
+              <input id="weightDirect" type="range" min="0" max="100" value="45" />
+            </label>
+          </div>
+
+          <button id="generatePersonaButton" type="submit">Generate persona</button>
+        </form>
+
+        <form id="voiceCloneForm" class="setup-form">
+          <label>
+            Voice sample
+            <input id="voiceSample" name="sample" type="file" accept=".wav,.mp3,audio/wav,audio/mpeg" />
+          </label>
+          <div class="form-grid">
+            <label>
+              Clone name
+              <input id="voiceCloneName" value="Psyche Future Self Voice" />
+            </label>
+            <label>
+              Clone gender
+              <select id="voiceCloneGender">
+                <option value="neutral">neutral</option>
+                <option value="female">female</option>
+                <option value="male">male</option>
+              </select>
+            </label>
+          </div>
+          <label class="switch consent-row">
+            <input id="voiceConsent" type="checkbox" />
+            <span>I confirm this is my own voice sample.</span>
+          </label>
+          <button id="cloneVoiceButton" type="submit">Clone voice</button>
+        </form>
+
+        <div class="setup-output">
+          <h2>Generated Config</h2>
+          <pre id="setupOutput">No persona or voice generated yet</pre>
+        </div>
+      </section>
+
       <section class="stage">
         <div class="local-preview">
           <div class="section-head">
