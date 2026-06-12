@@ -8,7 +8,8 @@
     "check:avatar": "node --check apps/agent/server.js && node --check apps/agent/room-agent.mjs && node --check apps/web/src/main.js && node --check apps/web/src/agent-sim.js"
   },
   "dependencies": {
-    "@livekit/rtc-node": "^0.13.14"
+    "@livekit/rtc-node": "^0.13.14",
+    "ws": "^8.21.0"
   },
   "engines": {
     "node": ">=18"

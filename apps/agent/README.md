@@ -103,6 +103,105 @@ Run the room agent in a second terminal:
 node apps/agent/room-agent.mjs
 ```
 
+## Bedrock Persona Provider
+
+The default persona generator is deterministic and local. For the contest
+Bedrock track, the same persona flow can ask Bedrock Claude to refine the
+future-self persona while keeping the same JSON schema and Realtime prompt
+shape.
+
+Required environment variables:
+
+```sh
+AWS_REGION=us-east-1
+BEDROCK_AUTH_MODE=bearer
+BEDROCK_BEARER_TOKEN=
+BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
+```
+
+The Bedrock model id is normalized automatically. If the value does not start
+with a regional prefix such as `us.`, the agent prepends `us.` before calling
+Bedrock.
+
+The contest-provided Bedrock credential is a bearer token, not a standard AWS
+access key pair. `BEDROCK_API_KEY` is also accepted as an alias for
+`BEDROCK_BEARER_TOKEN`. `BEDROCK_API_KEY_NAME` can be stored for bookkeeping,
+but it is not sent to the API.
+
+If you later use a normal AWS account instead of the contest bearer token, set
+`BEDROCK_AUTH_MODE=aws` and provide:
+
+```sh
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_SESSION_TOKEN=
+```
+
+Generate a persona with Bedrock from the CLI:
+
+```sh
+node apps/agent/generate-persona.mjs \
+  --input apps/agent/persona.sample.json \
+  --output runs/personas/bedrock-persona.json \
+  --provider bedrock
+```
+
+The web UI also has an Engine selector in the Survey & Voice panel. Choose
+`Bedrock Claude` to use this provider. If Bedrock credentials, permissions, or
+quota are not ready, the server falls back to the local rule generator and
+returns a warning in the generated config.
+
+## Azure Persona Provider
+
+For an Azure-centered contest demo, the persona generator can use an Azure
+OpenAI-compatible deployment instead of Bedrock. This keeps the real-time
+conversation and persona generation on Azure while preserving the local rule
+fallback.
+
+Required environment variables:
+
+```sh
+AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com
+AZURE_OPENAI_API_KEY=
+AZURE_OPENAI_PERSONA_DEPLOYMENT=<chat-or-claude-compatible-deployment>
+AZURE_OPENAI_PERSONA_API=auto
+AZURE_OPENAI_API_VERSION=preview
+PERSONA_PROVIDER=azure
+```
+
+If Foundry gives you a full Responses API URI such as
+`https://<resource>.services.ai.azure.com/openai/v1/responses`, put it in
+`AZURE_OPENAI_PERSONA_ENDPOINT`:
+
+```sh
+AZURE_OPENAI_PERSONA_ENDPOINT=https://<resource>.services.ai.azure.com/openai/v1/responses
+AZURE_OPENAI_PERSONA_API=responses
+AZURE_OPENAI_PERSONA_DEPLOYMENT=gpt-5-mini
+```
+
+If `AZURE_OPENAI_PERSONA_DEPLOYMENT` is not set, the provider falls back to
+`AZURE_OPENAI_DEPLOYMENT_NAME`. For clarity, keep persona generation and
+Realtime deployments separate when possible:
+
+```sh
+AZURE_OPENAI_DEPLOYMENT_NAME=gpt-realtime
+AZURE_OPENAI_PERSONA_DEPLOYMENT=gpt-4.1
+```
+
+Generate a persona with Azure from the CLI:
+
+```sh
+node apps/agent/generate-persona.mjs \
+  --input apps/agent/persona.sample.json \
+  --output runs/personas/azure-persona.json \
+  --provider azure
+```
+
+The base persona now includes a randomized `futureTrajectory` influenced by the
+three Psyche weights and the user's concerns/habits. The LLM provider must honor
+that trajectory, so generated futures can be aspirational, balanced, stalled, or
+strained instead of always successful.
+
 In the Codex desktop shell on macOS, the bundled app Node may fail to load
 LiveKit's native `.node` binding because of code-signing restrictions. If that
 happens, use the system/Homebrew Node instead:
@@ -128,6 +227,19 @@ After adding `OPENAI_API_KEY`, you can run the same agent in Realtime mode:
 ```sh
 AVATAR_AGENT_MODE=realtime node apps/agent/room-agent.mjs
 ```
+
+To use Azure GPT Realtime instead of the public OpenAI Realtime endpoint, set:
+
+```sh
+OPENAI_REALTIME_PROVIDER=azure
+AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com
+AZURE_OPENAI_API_KEY=
+AZURE_OPENAI_DEPLOYMENT_NAME=gpt-realtime
+```
+
+With `OPENAI_REALTIME_PROVIDER=azure`, `OPENAI_API_KEY` is no longer required for
+the room agent. Keep it only if you want the public OpenAI endpoint as a
+fallback.
 
 In this mode, the agent still publishes placeholder video, but its audio track
 is fed by OpenAI Realtime output audio from a short greeting prompt and user

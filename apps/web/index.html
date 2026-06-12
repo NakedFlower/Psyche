@@ -8,77 +8,52 @@
   </head>
   <body>
     <main class="shell">
-      <section class="panel control-panel">
+      <header class="topbar">
         <div>
           <p class="eyebrow">Psyche Avatar Lab</p>
-          <h1>LiveKit Room Test</h1>
+          <h1>Future Self Call</h1>
         </div>
-
-        <form id="joinForm" class="join-form">
-          <label>
-            Token server
-            <input id="tokenEndpoint" value="/api/livekit/token" />
-          </label>
-          <label>
-            Room
-            <input id="roomName" value="psyche-avatar-lab" />
-          </label>
-          <label>
-            Identity
-            <input id="identity" />
-          </label>
-          <div class="switch-row">
-            <label class="switch">
-              <input id="cameraEnabled" type="checkbox" checked />
-              <span>Camera</span>
-            </label>
-            <label class="switch">
-              <input id="microphoneEnabled" type="checkbox" checked />
-              <span>Mic</span>
-            </label>
-          </div>
-          <div class="button-row">
-            <button id="joinButton" type="submit">Join</button>
-            <button id="leaveButton" type="button" disabled>Leave</button>
-          </div>
-          <button id="startEmbeddedAgentButton" type="button" disabled>
-            Start embedded agent sim
-          </button>
-          <a id="agentSimLink" class="secondary-link" href="/agent-sim.html" target="_blank" rel="noreferrer">
-            Open agent simulator
-          </a>
+        <form id="joinForm" class="call-controls">
+          <button id="joinButton" type="submit">Join</button>
+          <button id="leaveButton" type="button" disabled>Leave</button>
         </form>
+      </header>
 
-        <div class="status-grid">
-          <div>
-            <span>Connection</span>
+      <section class="call-stage">
+        <article class="video-pane ai-pane">
+          <div class="pane-head">
+            <span>AI Future Self</span>
+            <strong id="remoteTrackCount">waiting</strong>
+          </div>
+          <div id="remoteMedia" class="media-grid empty">AI agent is not connected</div>
+        </article>
+
+        <article class="video-pane user-pane">
+          <div class="pane-head">
+            <span>You</span>
             <strong id="connectionState">disconnected</strong>
           </div>
-          <div>
-            <span>Room</span>
-            <strong id="activeRoom">-</strong>
-          </div>
-          <div>
-            <span>Local tracks</span>
-            <strong id="localTrackState">none</strong>
-          </div>
-          <div>
-            <span>Remote tracks</span>
-            <strong id="remoteTrackCount">0</strong>
-          </div>
-        </div>
+          <div id="localMedia" class="media-grid empty">Join to start camera and mic</div>
+        </article>
       </section>
 
-      <section class="panel setup-panel">
+      <section class="setup-panel">
         <div class="section-head">
           <div>
-            <p class="eyebrow">Future Self Setup</p>
+            <p class="eyebrow">Setup</p>
             <h2>Survey & Voice</h2>
           </div>
-          <span>persona + clone</span>
+          <span id="activeRoom">psyche-avatar-lab</span>
         </div>
 
         <form id="personaForm" class="setup-form">
+          <input id="tokenEndpoint" type="hidden" value="/api/livekit/token" />
+          <input id="roomName" type="hidden" value="psyche-avatar-lab" />
+          <input id="identity" type="hidden" />
+          <input id="personaProvider" type="hidden" value="azure" />
+          <input id="cameraEnabled" type="hidden" value="true" />
+          <input id="microphoneEnabled" type="hidden" value="true" />
+
           <div class="form-grid">
             <label>
               Target
@@ -145,7 +120,7 @@
           <button id="generatePersonaButton" type="submit">Generate persona</button>
         </form>
 
-        <form id="voiceCloneForm" class="setup-form">
+        <form id="voiceCloneForm" class="setup-form voice-form">
           <label>
             Voice sample
             <input id="voiceSample" name="sample" type="file" accept=".wav,.mp3,audio/wav,audio/mpeg" />
@@ -175,43 +150,11 @@
           <h2>Generated Config</h2>
           <pre id="setupOutput">No persona or voice generated yet</pre>
         </div>
-      </section>
 
-      <section class="stage">
-        <div class="local-preview">
-          <div class="section-head">
-            <h2>Local</h2>
-            <span id="localParticipantName">not joined</span>
-          </div>
-          <div id="localMedia" class="media-grid empty">No local media</div>
-        </div>
-
-        <div class="remote-preview">
-          <div class="section-head">
-            <h2>Remote Tracks</h2>
-            <span>agent / avatar worker / second browser</span>
-          </div>
-          <div id="remoteMedia" class="media-grid empty">No remote tracks</div>
-        </div>
-      </section>
-
-      <aside class="panel telemetry-panel">
-        <div class="section-head">
-          <h2>Participants</h2>
-          <button id="refreshButton" type="button" disabled>Refresh</button>
-        </div>
-        <ul id="participants" class="participants">
-          <li>No participants</li>
-        </ul>
-
-        <div class="section-head latency-head">
-          <h2>Latency Events</h2>
-          <button id="sendLatencyButton" type="button" disabled>Send Test</button>
-        </div>
-        <ol id="eventLog" class="event-log">
-          <li>Waiting for LiveKit data channel events</li>
+        <ol id="eventLog" class="event-log compact-log">
+          <li>Waiting for call events</li>
         </ol>
-      </aside>
+      </section>
     </main>
 
     <script type="module" src="/src/main.js"></script>

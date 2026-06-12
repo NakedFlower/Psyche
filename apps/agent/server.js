@@ -29,6 +29,12 @@ const server = http.createServer(async (req, res) => {
         livekitApiKey: Boolean(process.env.LIVEKIT_API_KEY),
         livekitApiSecret: Boolean(process.env.LIVEKIT_API_SECRET),
         openaiApiKey: Boolean(process.env.OPENAI_API_KEY),
+        realtimeProvider: process.env.OPENAI_REALTIME_PROVIDER || "openai",
+        azureOpenaiEndpoint: Boolean(process.env.AZURE_OPENAI_ENDPOINT),
+        azureOpenaiApiKey: Boolean(process.env.AZURE_OPENAI_API_KEY),
+        azureOpenaiDeployment: process.env.AZURE_OPENAI_DEPLOYMENT_NAME || null,
+        bedrockCredentials: Boolean(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY),
+        bedrockModelId: process.env.BEDROCK_MODEL_ID || null,
         mode: "token-server-only"
       });
     }
@@ -108,8 +114,34 @@ async function createLiveKitToken(req, res) {
 
 async function createPersona(req, res) {
   const body = await readJson(req);
+  const provider = body.personaProvider || process.env.PERSONA_PROVIDER || "rule";
   const { buildFutureSelfPersona } = await import("./persona-pipeline.mjs");
-  const persona = buildFutureSelfPersona(body);
+  let persona = null;
+  let warning = null;
+
+  if (provider === "azure") {
+    try {
+      const { buildFutureSelfPersonaWithAzure } = await import("./azure-persona.mjs");
+      persona = await buildFutureSelfPersonaWithAzure(body);
+    } catch (error) {
+      warning = `Azure persona generation failed; used rule fallback. ${error.message}`;
+      persona = buildFutureSelfPersona(body);
+      persona.provider = { name: "rule", fallbackFrom: "azure", warning };
+    }
+  } else if (provider === "bedrock") {
+    try {
+      const { buildFutureSelfPersonaWithBedrock } = await import("./bedrock-persona.mjs");
+      persona = await buildFutureSelfPersonaWithBedrock(body);
+    } catch (error) {
+      warning = `Bedrock persona generation failed; used rule fallback. ${error.message}`;
+      persona = buildFutureSelfPersona(body);
+      persona.provider = { name: "rule", fallbackFrom: "bedrock", warning };
+    }
+  } else {
+    persona = buildFutureSelfPersona(body);
+    persona.provider = { name: "rule" };
+  }
+
   const fileName = `persona-${Date.now()}.json`;
   const output = path.resolve(rootDir, "runs/personas", fileName);
   fs.mkdirSync(path.dirname(output), { recursive: true });
@@ -124,6 +156,8 @@ async function createPersona(req, res) {
     futureAge: persona.futureAge,
     identityKeywords: persona.predictedSelf.identityKeywords,
     firstGreeting: persona.predictedSelf.firstGreeting,
+    provider: persona.provider || { name: provider },
+    warning,
     realtimeInstructions: persona.realtimeInstructions
   });
 }

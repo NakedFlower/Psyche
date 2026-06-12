@@ -31,8 +31,12 @@ const config = {
   outputQueueMs: Number(process.env.AVATAR_AGENT_OUTPUT_QUEUE_MS || 120),
   sampleRate: Number(process.env.AVATAR_AGENT_SAMPLE_RATE || 48000),
   realtimeSampleRate: 24000,
+  realtimeProvider: process.env.OPENAI_REALTIME_PROVIDER || "openai",
   openaiApiKey: process.env.OPENAI_API_KEY,
   openaiModel: process.env.OPENAI_REALTIME_MODEL || "gpt-realtime",
+  azureOpenaiEndpoint: process.env.AZURE_OPENAI_ENDPOINT,
+  azureOpenaiApiKey: process.env.AZURE_OPENAI_API_KEY,
+  azureOpenaiDeployment: process.env.AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-realtime",
   openaiVoice: voiceProfile.voice,
   openaiVoiceLabel: voiceProfile.voiceLabel,
   ttsProvider: process.env.AVATAR_AGENT_TTS_PROVIDER || "openai",
@@ -161,6 +165,7 @@ log("ready", {
 
 await publishAgentState(room, "idle", {
   mode: config.mode,
+  realtimeProvider: config.realtimeProvider,
   maxTurns: config.maxTurns,
   listenSeconds: config.listenSeconds,
   vadThreshold: config.vadThreshold,
@@ -196,8 +201,12 @@ async function publishRealtimeAudio(activeRoom) {
   }
 
   realtimePump = await createOpenAIRealtimeAudioPump({
+    provider: config.realtimeProvider,
     apiKey: config.openaiApiKey,
     model: config.openaiModel,
+    azureEndpoint: config.azureOpenaiEndpoint,
+    azureApiKey: config.azureOpenaiApiKey,
+    azureDeployment: config.azureOpenaiDeployment,
     voice: config.openaiVoice,
     instructions: config.openaiInstructions,
     prompt: config.openaiGreeting,
@@ -227,7 +236,10 @@ async function publishRealtimeAudio(activeRoom) {
 
   log("audio.realtime.published", {
     sampleRate: config.realtimeSampleRate,
+    provider: config.realtimeProvider,
     model: config.openaiModel,
+    azureDeployment:
+      config.realtimeProvider === "azure" ? config.azureOpenaiDeployment : null,
     ttsProvider: config.ttsProvider,
     voice: config.openaiVoiceLabel,
     elevenLabsVoiceId: config.ttsProvider === "elevenlabs" ? config.elevenLabsVoiceId : null,
@@ -713,7 +725,14 @@ function validateConfig(values) {
   if (!values.livekitUrl) missing.push("LIVEKIT_URL");
   if (!values.apiKey) missing.push("LIVEKIT_API_KEY");
   if (!values.apiSecret) missing.push("LIVEKIT_API_SECRET");
-  if (values.mode === "realtime" && !values.openaiApiKey) missing.push("OPENAI_API_KEY");
+  if (values.mode === "realtime" && values.realtimeProvider === "openai" && !values.openaiApiKey) {
+    missing.push("OPENAI_API_KEY");
+  }
+  if (values.mode === "realtime" && values.realtimeProvider === "azure") {
+    if (!values.azureOpenaiEndpoint) missing.push("AZURE_OPENAI_ENDPOINT");
+    if (!values.azureOpenaiApiKey) missing.push("AZURE_OPENAI_API_KEY");
+    if (!values.azureOpenaiDeployment) missing.push("AZURE_OPENAI_DEPLOYMENT_NAME");
+  }
   if (values.mode === "realtime" && values.ttsProvider === "elevenlabs") {
     if (!values.elevenLabsApiKey) missing.push("ELEVENLABS_API_KEY");
     if (!values.elevenLabsVoiceId) missing.push("ELEVENLABS_VOICE_ID");
@@ -725,6 +744,10 @@ function validateConfig(values) {
 
   if (!["placeholder", "realtime"].includes(values.mode)) {
     throw new Error(`Invalid AVATAR_AGENT_MODE: ${values.mode}`);
+  }
+
+  if (!["openai", "azure"].includes(values.realtimeProvider)) {
+    throw new Error(`Invalid OPENAI_REALTIME_PROVIDER: ${values.realtimeProvider}`);
   }
 
   if (!["openai", "elevenlabs"].includes(values.ttsProvider)) {

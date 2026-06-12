@@ -1,6 +1,10 @@
 export async function createOpenAIRealtimeAudioPump({
+  provider = "openai",
   apiKey,
   model,
+  azureEndpoint,
+  azureApiKey,
+  azureDeployment,
   voice,
   instructions,
   prompt,
@@ -12,19 +16,14 @@ export async function createOpenAIRealtimeAudioPump({
   AudioFrame,
   log
 }) {
-  const WebSocketImpl = globalThis.WebSocket;
-  if (!WebSocketImpl) {
-    throw new Error("This Node runtime does not provide WebSocket. Use Node 22+.");
-  }
-
-  const url = `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`;
-  const protocols = [
-    "realtime",
-    `openai-insecure-api-key.${apiKey}`,
-    optionalProtocol("openai-organization", process.env.OPENAI_ORG_ID),
-    optionalProtocol("openai-project", process.env.OPENAI_PROJECT_ID)
-  ].filter(Boolean);
-  const ws = new WebSocketImpl(url, protocols);
+  const { ws, WebSocketImpl, modelLabel } = await createRealtimeSocket({
+    provider,
+    apiKey,
+    model,
+    azureEndpoint,
+    azureApiKey,
+    azureDeployment
+  });
   const voiceLabel = getVoiceLabel(voice);
 
   let closed = false;
@@ -40,7 +39,7 @@ export async function createOpenAIRealtimeAudioPump({
   let outputText = "";
 
   addSocketListener(ws, "open", () => {
-    log("openai.realtime.connected", { model, voice: voiceLabel });
+    log("openai.realtime.connected", { provider, model: modelLabel, voice: voiceLabel });
     send({
       type: "session.update",
       session: {
@@ -344,6 +343,55 @@ function addSocketListener(socket, eventName, handler) {
   }
 
   socket.on(eventName, handler);
+}
+
+async function createRealtimeSocket({
+  provider,
+  apiKey,
+  model,
+  azureEndpoint,
+  azureApiKey,
+  azureDeployment
+}) {
+  if (provider === "azure") {
+    if (!azureEndpoint) throw new Error("Missing AZURE_OPENAI_ENDPOINT");
+    if (!azureApiKey) throw new Error("Missing AZURE_OPENAI_API_KEY");
+    if (!azureDeployment) throw new Error("Missing AZURE_OPENAI_DEPLOYMENT_NAME");
+
+    const { default: WsWebSocket } = await import("ws");
+    const base = azureEndpoint.replace(/\/$/, "").replace(/\/openai\/v1$/, "");
+    const url =
+      `${base.replace(/^http:/, "ws:").replace(/^https:/, "wss:")}` +
+      `/openai/v1/realtime?model=${encodeURIComponent(azureDeployment)}`;
+    return {
+      ws: new WsWebSocket(url, {
+        headers: {
+          "api-key": azureApiKey
+        }
+      }),
+      WebSocketImpl: WsWebSocket,
+      modelLabel: azureDeployment
+    };
+  }
+
+  const WebSocketImpl = globalThis.WebSocket;
+  if (!WebSocketImpl) {
+    throw new Error("This Node runtime does not provide WebSocket. Use Node 22+.");
+  }
+
+  const url = `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`;
+  const protocols = [
+    "realtime",
+    `openai-insecure-api-key.${apiKey}`,
+    optionalProtocol("openai-organization", process.env.OPENAI_ORG_ID),
+    optionalProtocol("openai-project", process.env.OPENAI_PROJECT_ID)
+  ].filter(Boolean);
+
+  return {
+    ws: new WebSocketImpl(url, protocols),
+    WebSocketImpl,
+    modelLabel: model
+  };
 }
 
 function optionalProtocol(prefix, value) {
