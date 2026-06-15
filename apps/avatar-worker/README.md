@@ -213,6 +213,24 @@ GET  /v1/lipsync/jobs/:jobId
 GET  /runs/lipsync/jobs/:jobId/output.mp4
 ```
 
+`POST /v1/lipsync/jobs` accepts either JSON:
+
+```json
+{
+  "engine": "musetalk",
+  "facePath": "models/assets/face.mp4",
+  "audioPath": "models/assets/speech-clean.wav"
+}
+```
+
+or `multipart/form-data` with an uploaded audio file:
+
+```txt
+engine=musetalk
+facePath=models/assets/face.mp4
+audio=@reply.wav
+```
+
 ## Host Development Mode
 
 During R&D, Docker rebuilds are slow. Use a host-side virtual environment on

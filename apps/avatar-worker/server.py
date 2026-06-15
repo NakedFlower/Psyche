@@ -15,6 +15,7 @@ import subprocess
 import sys
 import threading
 import time
+import cgi
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -25,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 RUNS_DIR = ROOT / "runs"
 DEFAULT_FACE = "models/assets/face.mp4"
 DEFAULT_AUDIO = "models/assets/speech-clean.wav"
+UPLOADS_DIR = RUNS_DIR / "lipsync" / "uploads"
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
 
@@ -80,8 +82,8 @@ class AvatarWorkerHandler(BaseHTTPRequestHandler):
         self.send_json(get_job(job["jobId"]), status=status)
 
     def create_job(self) -> None:
-        body = self.read_json_body()
         try:
+            body = self.read_request_body()
             job = create_lipsync_job(body)
         except ValueError as error:
             self.send_json({"error": str(error)}, status=400)
@@ -123,6 +125,33 @@ class AvatarWorkerHandler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             return {}
 
+    def read_request_body(self) -> dict:
+        content_type = self.headers.get("Content-Type", "")
+        if content_type.startswith("multipart/form-data"):
+            return self.read_multipart_body()
+        return self.read_json_body()
+
+    def read_multipart_body(self) -> dict:
+        form = cgi.FieldStorage(
+            fp=self.rfile,
+            headers=self.headers,
+            environ={
+                "REQUEST_METHOD": "POST",
+                "CONTENT_TYPE": self.headers.get("Content-Type", ""),
+            },
+        )
+        body: dict[str, object] = {}
+        for key in form.keys():
+            field = form[key]
+            if isinstance(field, list):
+                field = field[0]
+            if key == "audio" and getattr(field, "filename", None):
+                body["audioPath"] = save_uploaded_audio(field)
+                body["uploadedAudioName"] = field.filename
+            elif getattr(field, "value", None) is not None:
+                body[key] = field.value
+        return body
+
     def send_json(self, payload: dict, status: int = 200) -> None:
         body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         self.send_response(status)
@@ -152,39 +181,40 @@ class AvatarWorkerHandler(BaseHTTPRequestHandler):
 
 
 def create_lipsync_job(body: dict) -> dict:
-        engine = body.get("engine", "musetalk")
-        if engine != "musetalk":
-            raise ValueError("Only musetalk is wired for the worker endpoint.")
+    engine = body.get("engine", "musetalk")
+    if engine != "musetalk":
+        raise ValueError("Only musetalk is wired for the worker endpoint.")
 
-        face_path = sanitize_relative_path(body.get("facePath") or DEFAULT_FACE)
-        audio_path = sanitize_relative_path(body.get("audioPath") or DEFAULT_AUDIO)
-        batch_size = int(body.get("batchSize") or os.environ.get("MUSETALK_BATCH_SIZE", "8"))
-        bbox_shift = int(body.get("bboxShift") or os.environ.get("MUSETALK_BBOX_SHIFT", "0"))
-        use_float16 = bool(body.get("useFloat16", os.environ.get("MUSETALK_USE_FLOAT16", "1") == "1"))
+    face_path = sanitize_relative_path(body.get("facePath") or DEFAULT_FACE)
+    audio_path = sanitize_relative_path(body.get("audioPath") or DEFAULT_AUDIO)
+    batch_size = int(body.get("batchSize") or os.environ.get("MUSETALK_BATCH_SIZE", "8"))
+    bbox_shift = int(body.get("bboxShift") or os.environ.get("MUSETALK_BBOX_SHIFT", "0"))
+    use_float16 = parse_bool(body.get("useFloat16", os.environ.get("MUSETALK_USE_FLOAT16", "1") == "1"))
 
-        job_id = body.get("jobId") or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        job_id = safe_slug(job_id)
-        out_dir = RUNS_DIR / "lipsync" / "jobs" / job_id
-        job = {
-            "jobId": job_id,
-            "status": "queued",
-            "engine": engine,
-            "createdAt": datetime.now(timezone.utc).isoformat(),
-            "updatedAt": datetime.now(timezone.utc).isoformat(),
-            "input": {
-                "facePath": face_path,
-                "audioPath": audio_path,
-                "batchSize": batch_size,
-                "bboxShift": bbox_shift,
-                "useFloat16": use_float16,
-            },
-            "outputDir": str(out_dir),
-            "videoUrl": f"/runs/lipsync/jobs/{job_id}/output.mp4",
-            "reportUrl": f"/runs/lipsync/jobs/{job_id}/report.json",
-        }
-        with JOBS_LOCK:
-            JOBS[job_id] = job
-        return job
+    job_id = body.get("jobId") or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    job_id = safe_slug(str(job_id))
+    out_dir = RUNS_DIR / "lipsync" / "jobs" / job_id
+    job = {
+        "jobId": job_id,
+        "status": "queued",
+        "engine": engine,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "input": {
+            "facePath": face_path,
+            "audioPath": audio_path,
+            "uploadedAudioName": body.get("uploadedAudioName"),
+            "batchSize": batch_size,
+            "bboxShift": bbox_shift,
+            "useFloat16": use_float16,
+        },
+        "outputDir": str(out_dir),
+        "videoUrl": f"/runs/lipsync/jobs/{job_id}/output.mp4",
+        "reportUrl": f"/runs/lipsync/jobs/{job_id}/report.json",
+    }
+    with JOBS_LOCK:
+        JOBS[job_id] = job
+    return job
 
 
 def run_lipsync_job(job_id: str) -> None:
@@ -252,6 +282,30 @@ def sanitize_relative_path(value: str) -> str:
     if path.is_absolute() or ".." in path.parts:
         raise ValueError(f"Only relative mounted paths are allowed: {value}")
     return str(path)
+
+
+def save_uploaded_audio(field) -> str:
+    filename = safe_slug(Path(field.filename or "reply.wav").name) or "reply.wav"
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".wav", ".mp3", ".m4a", ".aac"}:
+        raise ValueError("Audio upload must be wav, mp3, m4a, or aac.")
+
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    upload_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    target = UPLOADS_DIR / f"{upload_id}-{filename}"
+    with target.open("wb") as file:
+        while True:
+            chunk = field.file.read(1024 * 1024)
+            if not chunk:
+                break
+            file.write(chunk)
+    return str(target.relative_to(ROOT))
+
+
+def parse_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).lower() in {"1", "true", "yes", "on"}
 
 
 def safe_slug(value: str) -> str:

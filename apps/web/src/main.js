@@ -39,6 +39,7 @@ const elements = {
   avatarWorkerUrl: document.getElementById("avatarWorkerUrl"),
   avatarFacePath: document.getElementById("avatarFacePath"),
   avatarAudioPath: document.getElementById("avatarAudioPath"),
+  avatarAudioFile: document.getElementById("avatarAudioFile"),
   generateAvatarButton: document.getElementById("generateAvatarButton"),
   avatarDemoStatus: document.getElementById("avatarDemoStatus"),
   setupOutput: document.getElementById("setupOutput"),
@@ -272,18 +273,7 @@ async function generateAvatarDemo() {
   appendEvent("avatar", `Requesting ${workerUrl}`);
 
   try {
-    const response = await fetch(`${workerUrl}/v1/lipsync/jobs`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        engine: "musetalk",
-        facePath: elements.avatarFacePath.value.trim(),
-        audioPath: elements.avatarAudioPath.value.trim(),
-        useFloat16: true
-      })
-    });
+    const response = await createAvatarJob(workerUrl);
     const job = await response.json();
     if (!response.ok) {
       throw new Error(job.error || JSON.stringify(job));
@@ -311,6 +301,34 @@ async function generateAvatarDemo() {
     elements.generateAvatarButton.disabled = false;
     elements.generateAvatarButton.textContent = "Generate avatar reply";
   }
+}
+
+async function createAvatarJob(workerUrl) {
+  const [audioFile] = elements.avatarAudioFile.files || [];
+  if (audioFile) {
+    const form = new FormData();
+    form.append("engine", "musetalk");
+    form.append("facePath", elements.avatarFacePath.value.trim());
+    form.append("audio", audioFile);
+    form.append("useFloat16", "true");
+    return fetch(`${workerUrl}/v1/lipsync/jobs`, {
+      method: "POST",
+      body: form
+    });
+  }
+
+  return fetch(`${workerUrl}/v1/lipsync/jobs`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      engine: "musetalk",
+      facePath: elements.avatarFacePath.value.trim(),
+      audioPath: elements.avatarAudioPath.value.trim(),
+      useFloat16: true
+    })
+  });
 }
 
 async function pollAvatarJob(workerUrl, jobId) {
