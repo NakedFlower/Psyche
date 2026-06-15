@@ -18,7 +18,8 @@ cat <<MSG
 Wav2Lip repo is ready:
   $WAV2LIP_REPO_DIR
 
-Next, place a checkpoint at:
+Next, place a checkpoint at one of these paths:
+  $WAV2LIP_CHECKPOINT_DIR/Wav2Lip-SD-GAN.pt
   $WAV2LIP_CHECKPOINT_DIR/wav2lip_gan.pth
 
 The checkpoint is intentionally not committed to git because it is large.

@@ -16,6 +16,7 @@ models/
   README.md
   wav2lip/
     checkpoints/
+      Wav2Lip-SD-GAN.pt
       wav2lip_gan.pth
     repos/
       Wav2Lip/

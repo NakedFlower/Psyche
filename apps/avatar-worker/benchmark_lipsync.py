@@ -112,9 +112,9 @@ def parse_args() -> argparse.Namespace:
         "--wav2lip-checkpoint",
         default=os.environ.get(
             "WAV2LIP_CHECKPOINT",
-            str(ROOT / "models" / "wav2lip" / "checkpoints" / "wav2lip_gan.pth"),
+            str(ROOT / "models" / "wav2lip" / "checkpoints" / "Wav2Lip-SD-GAN.pt"),
         ),
-        help="Path to wav2lip.pth or wav2lip_gan.pth.",
+        help="Path to a Wav2Lip checkpoint. Supports legacy state_dict .pth and current TorchScript .pt files.",
     )
     return parser.parse_args()
 
@@ -303,9 +303,10 @@ def run_wav2lip(args: argparse.Namespace, out_dir: Path, report: dict[str, Any],
         raise BenchmarkBlocked(
             f"Wav2Lip repo is missing: {repo}. Run scripts/setup-wav2lip.sh on the GPU server."
         )
+    patch_wav2lip_inference(inference)
     if not checkpoint.exists():
         raise BenchmarkBlocked(
-            f"Wav2Lip checkpoint is missing: {checkpoint}. Place wav2lip_gan.pth there before inference."
+            f"Wav2Lip checkpoint is missing: {checkpoint}. Download the official .pt/.pth checkpoint before inference."
         )
 
     command = [
@@ -343,6 +344,49 @@ def run_wav2lip(args: argparse.Namespace, out_dir: Path, report: dict[str, Any],
     report["output"]["video"] = str(output.resolve())
     report["output"]["bytes"] = output.stat().st_size
     report["output"]["videoMetadata"] = probe_media(output, report)
+
+
+def patch_wav2lip_inference(inference: Path) -> None:
+    source = inference.read_text(encoding="utf-8")
+    if "TorchScript checkpoint compatibility patch for Psyche" in source:
+        return
+
+    old = """def load_model(path):
+\tmodel = Wav2Lip()
+\tprint("Load checkpoint from: {}".format(path))
+\tcheckpoint = _load(path)
+\ts = checkpoint["state_dict"]
+\tnew_s = {}
+\tfor k, v in s.items():
+\t\tnew_s[k.replace('module.', '')] = v
+\tmodel.load_state_dict(new_s)
+
+\tmodel = model.to(device)
+\treturn model.eval()
+"""
+    new = """def load_model(path):
+\tprint("Load checkpoint from: {}".format(path))
+\tcheckpoint = _load(path)
+\t# TorchScript checkpoint compatibility patch for Psyche.
+\tif hasattr(checkpoint, "eval") and not isinstance(checkpoint, dict):
+\t\tmodel = checkpoint.to(device)
+\t\treturn model.eval()
+
+\tmodel = Wav2Lip()
+\ts = checkpoint["state_dict"]
+\tnew_s = {}
+\tfor k, v in s.items():
+\t\tnew_s[k.replace('module.', '')] = v
+\tmodel.load_state_dict(new_s)
+
+\tmodel = model.to(device)
+\treturn model.eval()
+"""
+    if old not in source:
+        raise BenchmarkBlocked(
+            f"Could not patch Wav2Lip loader automatically. Unexpected inference.py layout: {inference}"
+        )
+    inference.write_text(source.replace(old, new), encoding="utf-8")
 
 
 def collect_gpu_memory_mb() -> int | None:

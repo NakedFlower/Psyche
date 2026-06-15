@@ -109,7 +109,7 @@ Place these files on the GPU server:
 ```txt
 models/assets/face.jpg
 models/assets/speech.wav
-models/wav2lip/checkpoints/wav2lip_gan.pth
+models/wav2lip/checkpoints/Wav2Lip-SD-GAN.pt
 ```
 
 Then build the Wav2Lip-enabled Docker image and run inference:
@@ -128,3 +128,8 @@ runs/lipsync/wav2lip-test/wav2lip.stderr.log
 ```
 
 The first build installs PyTorch CUDA wheels and may take several minutes.
+
+The current official Wav2Lip download may provide `.pt` files such as
+`Wav2Lip-SD-GAN.pt` instead of legacy `.pth` checkpoints. The benchmark runner
+patches the cloned `inference.py` loader to support both the current
+TorchScript checkpoint and the older `state_dict` format.
