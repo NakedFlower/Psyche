@@ -142,13 +142,38 @@ function isUnsupportedTemperatureError(result) {
 
 function extractText(result) {
   if (typeof result.output_text === "string") return result.output_text.trim();
+  const deepText = collectTextFields(result).join("").trim();
+  if (deepText) return deepText;
   const responseText = (result.output || [])
     .flatMap((item) => item.content || [])
-    .map((content) => content.text || "")
+    .map((content) => content.text || content.output_text || "")
     .join("")
     .trim();
   if (responseText) return responseText;
   return result.choices?.[0]?.message?.content?.trim() || "";
+}
+
+function collectTextFields(value, depth = 0) {
+  if (!value || depth > 8) return [];
+  if (typeof value === "string") return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectTextFields(item, depth + 1));
+  }
+  if (typeof value !== "object") return [];
+
+  const texts = [];
+  for (const [key, nested] of Object.entries(value)) {
+    if (
+      typeof nested === "string" &&
+      ["text", "output_text", "content"].includes(key) &&
+      nested.trim()
+    ) {
+      texts.push(nested);
+    } else {
+      texts.push(...collectTextFields(nested, depth + 1));
+    }
+  }
+  return texts;
 }
 
 async function readResponse(response) {

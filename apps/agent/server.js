@@ -276,7 +276,14 @@ async function createAvatarReply(req, res) {
 
   const replyText = reply.text.trim();
   if (!replyText) {
-    return sendJson(res, 502, { error: "Azure returned an empty reply" });
+    return sendJson(res, 502, {
+      error: "Azure returned an empty reply",
+      azure: {
+        deployment: reply.deployment,
+        latencyMs: reply.latencyMs,
+        rawKeys: reply.raw && typeof reply.raw === "object" ? Object.keys(reply.raw) : []
+      }
+    });
   }
 
   const audio = await synthesizeElevenLabsMp3(replyText);
