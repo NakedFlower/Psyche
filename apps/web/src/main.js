@@ -35,6 +35,12 @@ const elements = {
   voiceCloneGender: document.getElementById("voiceCloneGender"),
   voiceConsent: document.getElementById("voiceConsent"),
   cloneVoiceButton: document.getElementById("cloneVoiceButton"),
+  avatarDemoForm: document.getElementById("avatarDemoForm"),
+  avatarWorkerUrl: document.getElementById("avatarWorkerUrl"),
+  avatarFacePath: document.getElementById("avatarFacePath"),
+  avatarAudioPath: document.getElementById("avatarAudioPath"),
+  generateAvatarButton: document.getElementById("generateAvatarButton"),
+  avatarDemoStatus: document.getElementById("avatarDemoStatus"),
   setupOutput: document.getElementById("setupOutput"),
   connectionState: document.getElementById("connectionState"),
   activeRoom: document.getElementById("activeRoom"),
@@ -63,6 +69,11 @@ elements.personaForm.addEventListener("submit", async (event) => {
 elements.voiceCloneForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   await cloneVoiceFromUpload();
+});
+
+elements.avatarDemoForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await generateAvatarDemo();
 });
 
 async function joinRoom() {
@@ -253,6 +264,52 @@ async function cloneVoiceFromUpload() {
   }
 }
 
+async function generateAvatarDemo() {
+  const workerUrl = normalizeBaseUrl(elements.avatarWorkerUrl.value);
+  elements.generateAvatarButton.disabled = true;
+  elements.generateAvatarButton.textContent = "Generating...";
+  elements.avatarDemoStatus.textContent = "Generating MuseTalk video on GPU...";
+  appendEvent("avatar", `Requesting ${workerUrl}`);
+
+  try {
+    const response = await fetch(`${workerUrl}/v1/demo/generate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        engine: "musetalk",
+        facePath: elements.avatarFacePath.value.trim(),
+        audioPath: elements.avatarAudioPath.value.trim(),
+        useFloat16: true
+      })
+    });
+    const result = await response.json();
+    if (!response.ok || result.status !== "ok") {
+      throw new Error(result.stderrTail || result.report?.error || JSON.stringify(result));
+    }
+
+    const videoUrl = `${workerUrl}${result.videoUrl}?t=${Date.now()}`;
+    renderGeneratedAvatar(videoUrl);
+    elements.avatarDemoStatus.textContent = `Generated in ${(result.durationMs / 1000).toFixed(1)}s`;
+    setSetupOutput({
+      type: "avatar.generated",
+      workerUrl,
+      videoUrl,
+      reportUrl: `${workerUrl}${result.reportUrl}`,
+      metrics: result.report?.metrics
+    });
+    appendEvent("avatar", `Generated ${result.videoUrl}`);
+  } catch (error) {
+    elements.avatarDemoStatus.textContent = "Avatar generation failed";
+    setSetupOutput({ type: "avatar.error", message: error.message });
+    appendEvent("error", error.message);
+  } finally {
+    elements.generateAvatarButton.disabled = false;
+    elements.generateAvatarButton.textContent = "Generate avatar reply";
+  }
+}
+
 function buildPersonaPayload() {
   return {
     targetYear: Number(elements.targetYear.value || 10),
@@ -421,6 +478,31 @@ function renderTrackCounts() {
     ).length;
   }
   elements.remoteTrackCount.textContent = remoteTracks > 0 ? `${remoteTracks} tracks` : "waiting";
+}
+
+function renderGeneratedAvatar(videoUrl) {
+  elements.remoteMedia.classList.remove("empty");
+  elements.remoteMedia.textContent = "";
+
+  const wrapper = document.createElement("article");
+  wrapper.className = "media-card video generated-avatar";
+
+  const video = document.createElement("video");
+  video.src = videoUrl;
+  video.autoplay = true;
+  video.controls = true;
+  video.playsInline = true;
+
+  const label = document.createElement("div");
+  label.className = "media-label";
+  label.textContent = "musetalk / generated reply";
+
+  wrapper.append(video, label);
+  elements.remoteMedia.append(wrapper);
+}
+
+function normalizeBaseUrl(value) {
+  return String(value || "http://localhost:8080").trim().replace(/\/+$/, "");
 }
 
 function updateConnectionState(connectionState) {

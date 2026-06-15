@@ -174,3 +174,32 @@ runs/lipsync/musetalk-test/musetalk.stderr.log
 
 The first MuseTalk build and weight download are much heavier than Wav2Lip.
 Compare results using the same `face.mp4` and `speech-clean.wav` inputs.
+
+## Turn-Based Demo Server
+
+After MuseTalk output quality is acceptable, run a small HTTP server on the GPU
+machine so the temporary web UI can request an avatar reply and play the
+generated video.
+
+On the GPU server:
+
+```sh
+sudo scripts/avatar-worker-demo-server.sh
+```
+
+From the local machine, keep an SSH tunnel open:
+
+```sh
+ssh -L 8080:localhost:8080 gpu
+```
+
+Then open the avatar-lab web UI locally and use:
+
+```txt
+GPU worker URL: http://localhost:8080
+Face video:     models/assets/face.mp4
+Reply audio:    models/assets/speech-clean.wav
+```
+
+The demo endpoint is blocking: it returns only after MuseTalk finishes creating
+`output.mp4`. This is intentional for the first turn-based call prototype.

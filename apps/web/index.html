@@ -151,6 +151,26 @@
           <pre id="setupOutput">No persona or voice generated yet</pre>
         </div>
 
+        <form id="avatarDemoForm" class="setup-form avatar-demo-form">
+          <h2>Avatar Preview</h2>
+          <label>
+            GPU worker URL
+            <input id="avatarWorkerUrl" value="http://localhost:8080" />
+          </label>
+          <div class="form-grid">
+            <label>
+              Face video
+              <input id="avatarFacePath" value="models/assets/face.mp4" />
+            </label>
+            <label>
+              Reply audio
+              <input id="avatarAudioPath" value="models/assets/speech-clean.wav" />
+            </label>
+          </div>
+          <button id="generateAvatarButton" type="submit">Generate avatar reply</button>
+          <div id="avatarDemoStatus" class="demo-status">GPU worker waiting</div>
+        </form>
+
         <ol id="eventLog" class="event-log compact-log">
           <li>Waiting for call events</li>
         </ol>

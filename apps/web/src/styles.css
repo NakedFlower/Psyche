@@ -234,7 +234,7 @@ h2 {
 
 .setup-panel {
   display: grid;
-  grid-template-columns: minmax(300px, 1.2fr) minmax(260px, 0.8fr) minmax(260px, 0.9fr);
+  grid-template-columns: repeat(4, minmax(240px, 1fr));
   gap: 1rem;
   padding: 0 1rem 1rem;
 }
@@ -279,6 +279,23 @@ h2 {
   display: grid;
   align-content: start;
   gap: 0.55rem;
+}
+
+.avatar-demo-form {
+  border: 1px solid #303934;
+  border-radius: 8px;
+  padding: 0.85rem;
+  background: #101513;
+}
+
+.demo-status {
+  min-height: 2.35rem;
+  border: 1px solid #303934;
+  border-radius: 7px;
+  padding: 0.6rem 0.7rem;
+  color: #b8c0b9;
+  background: #171c1a;
+  font-size: 0.82rem;
 }
 
 .setup-output pre,
