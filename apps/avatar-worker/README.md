@@ -41,6 +41,18 @@ Smoke test with generated fixtures:
 scripts/benchmark-lipsync.sh --engine dry-run --generate-fixtures
 ```
 
+Docker smoke test on the GPU server:
+
+```sh
+sudo scripts/avatar-worker-docker-smoke.sh
+```
+
+If the user belongs to the `docker` group, `sudo` is not needed:
+
+```sh
+scripts/avatar-worker-docker-smoke.sh
+```
+
 Run against real assets:
 
 ```sh
@@ -59,3 +71,27 @@ the expected command/input plan. Wire those adapters only after the model repos
 and checkpoints are installed on the GPU server.
 
 Reports are written under `runs/lipsync/` and are intentionally ignored by git.
+
+## GPU Server Flow
+
+1. Confirm Docker can see the GPU:
+
+   ```sh
+   sudo docker run --rm --gpus all nvidia/cuda:12.2.2-base-ubuntu22.04 nvidia-smi
+   ```
+
+2. Build and run the worker smoke test:
+
+   ```sh
+   sudo scripts/avatar-worker-docker-smoke.sh
+   ```
+
+3. Confirm the generated report:
+
+   ```sh
+   cat runs/lipsync/docker-smoke/report.json
+   ```
+
+This smoke test does not run Wav2Lip or MuseTalk yet. It proves that the
+container, FFmpeg, input fixture generation, report writing, and mounted
+`models/` and `runs/` directories are ready before large model downloads.

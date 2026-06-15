@@ -13,11 +13,17 @@ Expected layout:
 
 ```txt
 models/
+  README.md
   wav2lip/
+    checkpoints/
+    repos/
   musetalk/
+    checkpoints/
+    repos/
   assets/
+    face.png
+    speech.wav
 ```
 
 Keep large files out of git. Use `scripts/download-models.sh` to document how
 to fetch them.
-

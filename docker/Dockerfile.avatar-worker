@@ -1,13 +1,26 @@
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+FROM nvidia/cuda:12.2.2-cudnn8-runtime-ubuntu22.04
 
 WORKDIR /app
 
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 python3-pip ffmpeg git \
+  && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    git \
+    libglib2.0-0 \
+    libgl1 \
+    python3 \
+    python3-pip \
+    python3-venv \
   && rm -rf /var/lib/apt/lists/*
 
 COPY apps/avatar-worker ./apps/avatar-worker
 COPY packages ./packages
-COPY models ./models
+COPY scripts/benchmark-lipsync.sh ./scripts/benchmark-lipsync.sh
+COPY models/README.md ./models/README.md
 
-CMD ["sh", "-c", "echo 'Avatar worker scaffold ready. Add runtime entrypoint after implementation.' && sleep infinity"]
+RUN chmod +x ./scripts/benchmark-lipsync.sh
+
+CMD ["./scripts/benchmark-lipsync.sh", "--engine", "dry-run", "--generate-fixtures", "--out-dir", "runs/lipsync/docker-smoke"]
