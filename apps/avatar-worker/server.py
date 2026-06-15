@@ -285,11 +285,12 @@ def sanitize_relative_path(value: str) -> str:
 
 
 def save_uploaded_audio(field) -> str:
-    filename = safe_slug(Path(field.filename or "reply.wav").name) or "reply.wav"
-    suffix = Path(filename).suffix.lower()
+    source_name = Path(field.filename or "reply.wav")
+    suffix = source_name.suffix.lower()
     if suffix not in {".wav", ".mp3", ".m4a", ".aac"}:
         raise ValueError("Audio upload must be wav, mp3, m4a, or aac.")
 
+    filename = f"{safe_slug(source_name.stem) or 'reply'}{suffix}"
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     upload_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     target = UPLOADS_DIR / f"{upload_id}-{filename}"
