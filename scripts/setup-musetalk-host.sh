@@ -33,7 +33,7 @@ python -m pip install --no-cache-dir "numpy==1.23.5" "Cython<3"
 python -m pip uninstall -y xtcocotools
 python -m pip install --no-cache-dir --no-build-isolation --no-binary xtcocotools "xtcocotools==1.14.3"
 
-python -m pip install --no-cache-dir -U "huggingface_hub[cli]" gdown
+python -m pip install --no-cache-dir "huggingface_hub[cli]==0.30.2" gdown
 (
   cd "$MUSETALK_REPO_DIR"
   PATH="$VENV_DIR/bin:$PATH" bash ./download_weights.sh
