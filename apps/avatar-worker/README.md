@@ -203,3 +203,33 @@ Reply audio:    models/assets/speech-clean.wav
 
 The demo endpoint is blocking: it returns only after MuseTalk finishes creating
 `output.mp4`. This is intentional for the first turn-based call prototype.
+
+## Host Development Mode
+
+During R&D, Docker rebuilds are slow. Use a host-side virtual environment on
+the GPU server for fast edit/pull/run cycles, then return to Docker once the API
+is stable.
+
+First-time setup:
+
+```sh
+scripts/setup-musetalk-host.sh
+```
+
+Run a host-side benchmark:
+
+```sh
+scripts/avatar-worker-host-musetalk.sh
+```
+
+Run the HTTP worker without Docker:
+
+```sh
+scripts/avatar-worker-host-server.sh
+```
+
+The same SSH tunnel still applies:
+
+```sh
+ssh -L 8080:localhost:8080 gpu
+```
