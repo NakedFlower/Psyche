@@ -43,7 +43,9 @@ RUN if [ "$INSTALL_MUSETALK_DEPS" = "true" ]; then \
     && mim install mmengine \
     && mim install "mmcv==2.0.1" \
     && mim install "mmdet==3.1.0" \
-    && mim install "mmpose==1.1.0"; \
+    && mim install "mmpose==1.1.0" \
+    && python3 -m pip uninstall -y xtcocotools \
+    && python3 -m pip install --no-cache-dir --no-binary xtcocotools "xtcocotools==1.14.3"; \
   fi
 
 CMD ["./scripts/benchmark-lipsync.sh", "--engine", "dry-run", "--generate-fixtures", "--out-dir", "runs/lipsync/docker-smoke"]
