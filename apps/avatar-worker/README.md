@@ -260,3 +260,34 @@ The same SSH tunnel still applies:
 ```sh
 ssh -L 8080:localhost:8080 gpu
 ```
+
+## AI Reply Demo
+
+The temporary web UI can now ask a text question, generate a short future-self
+reply through Azure, synthesize that reply with ElevenLabs, upload the audio to
+the GPU worker, and poll the MuseTalk job until `output.mp4` is ready.
+
+Required local avatar-lab environment variables:
+
+```txt
+AZURE_OPENAI_API_KEY
+AZURE_OPENAI_PERSONA_ENDPOINT
+AZURE_OPENAI_PERSONA_DEPLOYMENT
+ELEVENLABS_API_KEY
+ELEVENLABS_VOICE_ID
+```
+
+Run locally:
+
+```sh
+npm run dev:avatar
+```
+
+Run on the GPU server:
+
+```sh
+scripts/avatar-worker-host-server.sh
+```
+
+In the web UI, keep `GPU worker URL` as `http://localhost:8080`, type a
+question in `Ask Future Self`, and click `Ask and generate video`.

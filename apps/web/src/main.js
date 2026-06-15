@@ -42,6 +42,10 @@ const elements = {
   avatarAudioFile: document.getElementById("avatarAudioFile"),
   generateAvatarButton: document.getElementById("generateAvatarButton"),
   avatarDemoStatus: document.getElementById("avatarDemoStatus"),
+  askAvatarForm: document.getElementById("askAvatarForm"),
+  avatarQuestion: document.getElementById("avatarQuestion"),
+  askAvatarButton: document.getElementById("askAvatarButton"),
+  askAvatarStatus: document.getElementById("askAvatarStatus"),
   setupOutput: document.getElementById("setupOutput"),
   connectionState: document.getElementById("connectionState"),
   activeRoom: document.getElementById("activeRoom"),
@@ -75,6 +79,11 @@ elements.voiceCloneForm.addEventListener("submit", async (event) => {
 elements.avatarDemoForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   await generateAvatarDemo();
+});
+
+elements.askAvatarForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await askFutureSelfAvatar();
 });
 
 async function joinRoom() {
@@ -303,6 +312,68 @@ async function generateAvatarDemo() {
   }
 }
 
+async function askFutureSelfAvatar() {
+  const workerUrl = normalizeBaseUrl(elements.avatarWorkerUrl.value);
+  const question = elements.avatarQuestion.value.trim();
+  if (!question) {
+    elements.askAvatarStatus.textContent = "Type a question first";
+    return;
+  }
+
+  elements.askAvatarButton.disabled = true;
+  elements.askAvatarButton.textContent = "Thinking...";
+  elements.askAvatarStatus.textContent = "Generating AI reply and voice...";
+  appendEvent("avatar", "Asking future self");
+
+  try {
+    const response = await fetch("/api/avatar/reply", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        question,
+        workerUrl,
+        facePath: elements.avatarFacePath.value.trim()
+      })
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || JSON.stringify(result));
+    }
+
+    const job = result.workerJob;
+    appendEvent("avatar", `AI reply queued ${job.jobId}`);
+    elements.askAvatarStatus.textContent = "Voice created. Waiting for GPU video...";
+    const completed = await pollAvatarJob(workerUrl, job.jobId, {
+      onStatus: (statusText) => {
+        elements.askAvatarStatus.textContent = statusText;
+      }
+    });
+
+    const videoUrl = `${workerUrl}${completed.videoUrl}?t=${Date.now()}`;
+    renderGeneratedAvatar(videoUrl);
+    elements.askAvatarStatus.textContent = `Generated in ${(completed.durationMs / 1000).toFixed(1)}s`;
+    setSetupOutput({
+      type: "avatar.reply.generated",
+      question,
+      replyText: result.replyText,
+      audioFile: result.audioFile,
+      jobId: completed.jobId,
+      videoUrl,
+      reportUrl: `${workerUrl}${completed.reportUrl}`,
+      metrics: completed.report?.metrics
+    });
+  } catch (error) {
+    elements.askAvatarStatus.textContent = "AI avatar reply failed";
+    setSetupOutput({ type: "avatar.reply.error", message: error.message });
+    appendEvent("error", error.message);
+  } finally {
+    elements.askAvatarButton.disabled = false;
+    elements.askAvatarButton.textContent = "Ask and generate video";
+  }
+}
+
 async function createAvatarJob(workerUrl) {
   const [audioFile] = elements.avatarAudioFile.files || [];
   if (audioFile) {
@@ -331,7 +402,7 @@ async function createAvatarJob(workerUrl) {
   });
 }
 
-async function pollAvatarJob(workerUrl, jobId) {
+async function pollAvatarJob(workerUrl, jobId, options = {}) {
   const started = Date.now();
   while (Date.now() - started < 10 * 60 * 1000) {
     const response = await fetch(`${workerUrl}/v1/lipsync/jobs/${encodeURIComponent(jobId)}`);
@@ -349,7 +420,9 @@ async function pollAvatarJob(workerUrl, jobId) {
 
     const seconds = Math.round((Date.now() - started) / 1000);
     elements.generateAvatarButton.textContent = job.status === "queued" ? "Queued..." : "Generating...";
-    elements.avatarDemoStatus.textContent = `${job.status} ${job.jobId} (${seconds}s)`;
+    const statusText = `${job.status} ${job.jobId} (${seconds}s)`;
+    elements.avatarDemoStatus.textContent = statusText;
+    options.onStatus?.(statusText);
     await sleep(1500);
   }
   throw new Error(`Timed out waiting for avatar job ${jobId}`);

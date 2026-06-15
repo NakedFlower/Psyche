@@ -51,6 +51,10 @@ const server = http.createServer(async (req, res) => {
       return cloneVoice(req, res);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/avatar/reply") {
+      return createAvatarReply(req, res);
+    }
+
     if (req.method === "GET" || req.method === "HEAD") {
       return serveStatic(url.pathname, res, req.method === "HEAD");
     }
@@ -232,6 +236,121 @@ async function cloneVoice(req, res) {
     sampleFile: path.relative(rootDir, samplePath),
     ...record
   });
+}
+
+async function createAvatarReply(req, res) {
+  const missing = [];
+  if (!process.env.AZURE_OPENAI_API_KEY) missing.push("AZURE_OPENAI_API_KEY");
+  if (!process.env.ELEVENLABS_API_KEY) missing.push("ELEVENLABS_API_KEY");
+  if (!process.env.ELEVENLABS_VOICE_ID) missing.push("ELEVENLABS_VOICE_ID");
+  if (missing.length > 0) {
+    return sendJson(res, 400, { error: "Missing avatar reply environment variables", missing });
+  }
+
+  const body = await readJson(req);
+  const question = String(body.question || "").trim();
+  if (!question) {
+    return sendJson(res, 400, { error: "Missing question" });
+  }
+
+  const workerUrl = String(body.workerUrl || process.env.AVATAR_WORKER_URL || "http://localhost:8080").replace(/\/+$/, "");
+  const facePath = String(body.facePath || "models/assets/face.mp4").trim();
+  const persona = loadPersonaForReply(body.personaFile);
+  const { chatWithAzureOpenAI } = await import("./azure-openai-runtime.mjs");
+
+  const reply = await chatWithAzureOpenAI({
+    system: [
+      persona?.realtimeInstructions || "너는 Psyche의 미래 자아다. 한국어로 짧고 자연스럽게 답한다.",
+      "",
+      "지금 답변은 립싱크 영상으로 변환된다.",
+      "반드시 1~3문장으로 짧게 답한다.",
+      "문장 사이에 긴 목록이나 마크다운을 쓰지 않는다."
+    ].join("\n"),
+    prompt: [
+      "사용자의 질문에 미래의 나 관점에서 답해줘.",
+      `질문: ${question}`
+    ].join("\n"),
+    maxTokens: Number(process.env.AVATAR_REPLY_MAX_TOKENS || 220),
+    temperature: Number(process.env.AVATAR_REPLY_TEMPERATURE || 0.75)
+  });
+
+  const replyText = reply.text.trim();
+  if (!replyText) {
+    return sendJson(res, 502, { error: "Azure returned an empty reply" });
+  }
+
+  const audio = await synthesizeElevenLabsMp3(replyText);
+  const audioFile = path.resolve(rootDir, "runs/avatar-replies", `reply-${Date.now()}.mp3`);
+  fs.mkdirSync(path.dirname(audioFile), { recursive: true });
+  fs.writeFileSync(audioFile, audio);
+
+  const form = new FormData();
+  form.append("engine", "musetalk");
+  form.append("facePath", facePath);
+  form.append("useFloat16", "true");
+  form.append("audio", new Blob([audio], { type: "audio/mpeg" }), path.basename(audioFile));
+
+  const workerResponse = await fetch(`${workerUrl}/v1/lipsync/jobs`, {
+    method: "POST",
+    body: form
+  });
+  const workerJob = await readFetchResponse(workerResponse);
+  if (!workerResponse.ok) {
+    return sendJson(res, workerResponse.status, {
+      error: "Avatar worker job creation failed",
+      workerJob
+    });
+  }
+
+  return sendJson(res, 202, {
+    ok: true,
+    replyText,
+    audioFile: path.relative(rootDir, audioFile),
+    workerUrl,
+    workerJob,
+    azure: {
+      deployment: reply.deployment,
+      latencyMs: reply.latencyMs
+    }
+  });
+}
+
+function loadPersonaForReply(personaFile) {
+  const requested = String(personaFile || process.env.AVATAR_PERSONA_FILE || "").trim();
+  if (!requested) return null;
+  const resolved = path.resolve(rootDir, requested);
+  if (!resolved.startsWith(rootDir) || !fs.existsSync(resolved)) return null;
+  return JSON.parse(fs.readFileSync(resolved, "utf8"));
+}
+
+async function synthesizeElevenLabsMp3(text) {
+  const voiceId = process.env.ELEVENLABS_VOICE_ID;
+  const modelId = process.env.ELEVENLABS_MODEL_ID || "eleven_multilingual_v2";
+  const outputFormat = process.env.ELEVENLABS_OUTPUT_FORMAT || "mp3_44100_128";
+  const url = new URL(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`);
+  url.searchParams.set("output_format", outputFormat);
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "xi-api-key": process.env.ELEVENLABS_API_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      text,
+      model_id: modelId,
+      language_code: "ko",
+      voice_settings: {
+        stability: Number(process.env.ELEVENLABS_STABILITY || 0.65),
+        similarity_boost: Number(process.env.ELEVENLABS_SIMILARITY_BOOST || 0.8)
+      }
+    })
+  });
+  if (!response.ok) {
+    const result = await readFetchResponse(response);
+    throw new Error(`ElevenLabs TTS failed (${response.status}): ${typeof result === "string" ? result : JSON.stringify(result)}`);
+  }
+  return Buffer.from(await response.arrayBuffer());
 }
 
 function signLiveKitJwt({ apiKey, apiSecret, identity, name, grants, ttlSeconds }) {
