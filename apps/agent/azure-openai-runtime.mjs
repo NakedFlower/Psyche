@@ -20,7 +20,7 @@ export async function chatWithAzureOpenAI({
     throw new Error("Missing AZURE_OPENAI_PERSONA_DEPLOYMENT or AZURE_OPENAI_DEPLOYMENT_NAME");
   }
 
-  const request = buildRequest({
+  let request = buildRequest({
     endpoint,
     deployment,
     apiVersion,
@@ -32,7 +32,7 @@ export async function chatWithAzureOpenAI({
   });
 
   const started = performance.now();
-  const response = await fetch(request.url, {
+  let response = await fetch(request.url, {
     method: "POST",
     headers: {
       "api-key": apiKey,
@@ -40,7 +40,30 @@ export async function chatWithAzureOpenAI({
     },
     body: JSON.stringify(request.body)
   });
-  const result = await readResponse(response);
+  let result = await readResponse(response);
+
+  if (!response.ok && isUnsupportedTemperatureError(result) && request.body.temperature !== undefined) {
+    request = buildRequest({
+      endpoint,
+      deployment,
+      apiVersion,
+      apiStyle,
+      system,
+      prompt,
+      maxTokens,
+      temperature,
+      omitTemperature: true
+    });
+    response = await fetch(request.url, {
+      method: "POST",
+      headers: {
+        "api-key": apiKey,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(request.body)
+    });
+    result = await readResponse(response);
+  }
 
   if (!response.ok) {
     throw new Error(`Azure OpenAI chat failed (${response.status}): ${stringifyBody(result)}`);
@@ -65,7 +88,8 @@ function buildRequest({
   system,
   prompt,
   maxTokens,
-  temperature
+  temperature,
+  omitTemperature = false
 }) {
   const normalizedEndpoint = endpoint.replace(/\/$/, "");
   const style =
@@ -87,7 +111,7 @@ function buildRequest({
         ...(system ? { instructions: system } : {}),
         input: prompt,
         max_output_tokens: maxTokens,
-        temperature
+        ...(!omitTemperature ? { temperature } : {})
       }
     };
   }
@@ -106,9 +130,14 @@ function buildRequest({
         { role: "user", content: prompt }
       ],
       max_tokens: maxTokens,
-      temperature
+      ...(!omitTemperature ? { temperature } : {})
     }
   };
+}
+
+function isUnsupportedTemperatureError(result) {
+  const message = typeof result === "string" ? result : result?.error?.message || "";
+  return /unsupported parameter/i.test(message) && /temperature/i.test(message);
 }
 
 function extractText(result) {

@@ -336,6 +336,8 @@ async function askFutureSelfAvatar() {
         workerUrl,
         facePath: elements.avatarFacePath.value.trim()
       })
+    }).catch((error) => {
+      throw new Error(`Local avatar server request failed: ${error.message}`);
     });
     const result = await response.json();
     if (!response.ok) {

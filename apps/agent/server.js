@@ -40,19 +40,19 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && url.pathname === "/api/livekit/token") {
-      return createLiveKitToken(req, res);
+      return await createLiveKitToken(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/persona/generate") {
-      return createPersona(req, res);
+      return await createPersona(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/voice/clone") {
-      return cloneVoice(req, res);
+      return await cloneVoice(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/avatar/reply") {
-      return createAvatarReply(req, res);
+      return await createAvatarReply(req, res);
     }
 
     if (req.method === "GET" || req.method === "HEAD") {
