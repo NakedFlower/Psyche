@@ -13,6 +13,7 @@ import mimetypes
 import os
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -24,6 +25,8 @@ ROOT = Path(__file__).resolve().parents[2]
 RUNS_DIR = ROOT / "runs"
 DEFAULT_FACE = "models/assets/face.mp4"
 DEFAULT_AUDIO = "models/assets/speech-clean.wav"
+JOBS: dict[str, dict] = {}
+JOBS_LOCK = threading.Lock()
 
 
 class AvatarWorkerHandler(BaseHTTPRequestHandler):
@@ -43,8 +46,14 @@ class AvatarWorkerHandler(BaseHTTPRequestHandler):
                     "service": "psyche-avatar-worker",
                     "engines": ["musetalk", "wav2lip"],
                     "root": str(ROOT),
+                    "jobs": len(JOBS),
                 }
             )
+            return
+
+        if parsed.path.startswith("/v1/lipsync/jobs/"):
+            job_id = parsed.path.rsplit("/", 1)[-1]
+            self.send_json(get_job(job_id) or {"error": "job_not_found"}, status=200 if get_job(job_id) else 404)
             return
 
         if parsed.path.startswith("/runs/"):
@@ -58,66 +67,29 @@ class AvatarWorkerHandler(BaseHTTPRequestHandler):
         if parsed.path == "/v1/demo/generate":
             self.generate_demo()
             return
+        if parsed.path == "/v1/lipsync/jobs":
+            self.create_job()
+            return
 
         self.send_json({"error": "not_found"}, status=404)
 
     def generate_demo(self) -> None:
+        job = create_lipsync_job(self.read_json_body())
+        run_lipsync_job(job["jobId"])
+        status = 200 if job.get("status") == "completed" else 500
+        self.send_json(get_job(job["jobId"]), status=status)
+
+    def create_job(self) -> None:
         body = self.read_json_body()
-        engine = body.get("engine", "musetalk")
-        if engine != "musetalk":
-            self.send_json({"error": "Only musetalk is wired for the demo endpoint."}, status=400)
+        try:
+            job = create_lipsync_job(body)
+        except ValueError as error:
+            self.send_json({"error": str(error)}, status=400)
             return
 
-        face_path = sanitize_relative_path(body.get("facePath") or DEFAULT_FACE)
-        audio_path = sanitize_relative_path(body.get("audioPath") or DEFAULT_AUDIO)
-        batch_size = int(body.get("batchSize") or os.environ.get("MUSETALK_BATCH_SIZE", "8"))
-        bbox_shift = int(body.get("bboxShift") or os.environ.get("MUSETALK_BBOX_SHIFT", "0"))
-        use_float16 = bool(body.get("useFloat16", os.environ.get("MUSETALK_USE_FLOAT16", "1") == "1"))
-
-        job_id = body.get("jobId") or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        out_dir = RUNS_DIR / "lipsync" / "demo" / safe_slug(job_id)
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        started = time.perf_counter()
-        command = [
-            sys.executable,
-            str(ROOT / "apps" / "avatar-worker" / "benchmark_lipsync.py"),
-            "--engine",
-            "musetalk",
-            "--face",
-            face_path,
-            "--audio",
-            audio_path,
-            "--out-dir",
-            str(out_dir),
-            "--musetalk-batch-size",
-            str(batch_size),
-            "--musetalk-bbox-shift",
-            str(bbox_shift),
-        ]
-        if use_float16:
-            command.append("--musetalk-use-float16")
-
-        result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
-        report_path = out_dir / "report.json"
-        report = read_json_file(report_path)
-        status = report.get("status", "error")
-
-        payload = {
-            "jobId": out_dir.name,
-            "status": status,
-            "engine": engine,
-            "durationMs": round((time.perf_counter() - started) * 1000),
-            "videoUrl": f"/runs/lipsync/demo/{out_dir.name}/output.mp4",
-            "reportUrl": f"/runs/lipsync/demo/{out_dir.name}/report.json",
-            "report": report,
-        }
-        if result.returncode != 0 and status != "ok":
-            payload["stderrTail"] = "\n".join(result.stderr.splitlines()[-30:])
-            self.send_json(payload, status=500)
-            return
-
-        self.send_json(payload)
+        thread = threading.Thread(target=run_lipsync_job, args=(job["jobId"],), daemon=True)
+        thread.start()
+        self.send_json(job, status=202)
 
     def serve_run_artifact(self, request_path: str) -> None:
         relative = unquote(request_path).lstrip("/")
@@ -177,6 +149,102 @@ class AvatarWorkerHandler(BaseHTTPRequestHandler):
             ),
             flush=True,
         )
+
+
+def create_lipsync_job(body: dict) -> dict:
+        engine = body.get("engine", "musetalk")
+        if engine != "musetalk":
+            raise ValueError("Only musetalk is wired for the worker endpoint.")
+
+        face_path = sanitize_relative_path(body.get("facePath") or DEFAULT_FACE)
+        audio_path = sanitize_relative_path(body.get("audioPath") or DEFAULT_AUDIO)
+        batch_size = int(body.get("batchSize") or os.environ.get("MUSETALK_BATCH_SIZE", "8"))
+        bbox_shift = int(body.get("bboxShift") or os.environ.get("MUSETALK_BBOX_SHIFT", "0"))
+        use_float16 = bool(body.get("useFloat16", os.environ.get("MUSETALK_USE_FLOAT16", "1") == "1"))
+
+        job_id = body.get("jobId") or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        job_id = safe_slug(job_id)
+        out_dir = RUNS_DIR / "lipsync" / "jobs" / job_id
+        job = {
+            "jobId": job_id,
+            "status": "queued",
+            "engine": engine,
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "updatedAt": datetime.now(timezone.utc).isoformat(),
+            "input": {
+                "facePath": face_path,
+                "audioPath": audio_path,
+                "batchSize": batch_size,
+                "bboxShift": bbox_shift,
+                "useFloat16": use_float16,
+            },
+            "outputDir": str(out_dir),
+            "videoUrl": f"/runs/lipsync/jobs/{job_id}/output.mp4",
+            "reportUrl": f"/runs/lipsync/jobs/{job_id}/report.json",
+        }
+        with JOBS_LOCK:
+            JOBS[job_id] = job
+        return job
+
+
+def run_lipsync_job(job_id: str) -> None:
+    job = get_job(job_id)
+    if not job:
+        return
+
+    out_dir = Path(job["outputDir"])
+    out_dir.mkdir(parents=True, exist_ok=True)
+    update_job(job_id, {"status": "running", "startedAt": datetime.now(timezone.utc).isoformat()})
+
+    started = time.perf_counter()
+    command = [
+        sys.executable,
+        str(ROOT / "apps" / "avatar-worker" / "benchmark_lipsync.py"),
+        "--engine",
+        "musetalk",
+        "--face",
+        job["input"]["facePath"],
+        "--audio",
+        job["input"]["audioPath"],
+        "--out-dir",
+        str(out_dir),
+        "--musetalk-batch-size",
+        str(job["input"]["batchSize"]),
+        "--musetalk-bbox-shift",
+        str(job["input"]["bboxShift"]),
+    ]
+    if job["input"]["useFloat16"]:
+        command.append("--musetalk-use-float16")
+
+    result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
+    report = read_json_file(out_dir / "report.json")
+    report_status = report.get("status", "error")
+    duration_ms = round((time.perf_counter() - started) * 1000)
+    status = "completed" if result.returncode == 0 and report_status == "ok" else "failed"
+    patch = {
+        "status": status,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "completedAt": datetime.now(timezone.utc).isoformat(),
+        "durationMs": duration_ms,
+        "report": report,
+    }
+    if status == "failed":
+        patch["error"] = report.get("error") or "\n".join(result.stderr.splitlines()[-30:])
+        patch["stderrTail"] = "\n".join(result.stderr.splitlines()[-30:])
+    update_job(job_id, patch)
+
+
+def get_job(job_id: str) -> dict | None:
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        return dict(job) if job else None
+
+
+def update_job(job_id: str, patch: dict) -> None:
+    with JOBS_LOCK:
+        if job_id not in JOBS:
+            return
+        JOBS[job_id].update(patch)
 
 
 def sanitize_relative_path(value: str) -> str:

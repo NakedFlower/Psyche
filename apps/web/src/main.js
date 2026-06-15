@@ -267,12 +267,12 @@ async function cloneVoiceFromUpload() {
 async function generateAvatarDemo() {
   const workerUrl = normalizeBaseUrl(elements.avatarWorkerUrl.value);
   elements.generateAvatarButton.disabled = true;
-  elements.generateAvatarButton.textContent = "Generating...";
-  elements.avatarDemoStatus.textContent = "Generating MuseTalk video on GPU...";
+  elements.generateAvatarButton.textContent = "Queued...";
+  elements.avatarDemoStatus.textContent = "Creating GPU job...";
   appendEvent("avatar", `Requesting ${workerUrl}`);
 
   try {
-    const response = await fetch(`${workerUrl}/v1/demo/generate`, {
+    const response = await fetch(`${workerUrl}/v1/lipsync/jobs`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -284,16 +284,19 @@ async function generateAvatarDemo() {
         useFloat16: true
       })
     });
-    const result = await response.json();
-    if (!response.ok || result.status !== "ok") {
-      throw new Error(result.stderrTail || result.report?.error || JSON.stringify(result));
+    const job = await response.json();
+    if (!response.ok) {
+      throw new Error(job.error || JSON.stringify(job));
     }
 
+    appendEvent("avatar", `Queued job ${job.jobId}`);
+    const result = await pollAvatarJob(workerUrl, job.jobId);
     const videoUrl = `${workerUrl}${result.videoUrl}?t=${Date.now()}`;
     renderGeneratedAvatar(videoUrl);
     elements.avatarDemoStatus.textContent = `Generated in ${(result.durationMs / 1000).toFixed(1)}s`;
     setSetupOutput({
       type: "avatar.generated",
+      jobId: result.jobId,
       workerUrl,
       videoUrl,
       reportUrl: `${workerUrl}${result.reportUrl}`,
@@ -308,6 +311,30 @@ async function generateAvatarDemo() {
     elements.generateAvatarButton.disabled = false;
     elements.generateAvatarButton.textContent = "Generate avatar reply";
   }
+}
+
+async function pollAvatarJob(workerUrl, jobId) {
+  const started = Date.now();
+  while (Date.now() - started < 10 * 60 * 1000) {
+    const response = await fetch(`${workerUrl}/v1/lipsync/jobs/${encodeURIComponent(jobId)}`);
+    const job = await response.json();
+    if (!response.ok) {
+      throw new Error(job.error || JSON.stringify(job));
+    }
+
+    if (job.status === "completed") {
+      return job;
+    }
+    if (job.status === "failed") {
+      throw new Error(job.stderrTail || job.error || JSON.stringify(job));
+    }
+
+    const seconds = Math.round((Date.now() - started) / 1000);
+    elements.generateAvatarButton.textContent = job.status === "queued" ? "Queued..." : "Generating...";
+    elements.avatarDemoStatus.textContent = `${job.status} ${job.jobId} (${seconds}s)`;
+    await sleep(1500);
+  }
+  throw new Error(`Timed out waiting for avatar job ${jobId}`);
 }
 
 function buildPersonaPayload() {
@@ -566,6 +593,10 @@ function decodePayload(payload) {
 function setBusy(isBusy) {
   elements.joinButton.disabled = isBusy;
   elements.joinButton.textContent = isBusy ? "Joining..." : "Join";
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function escapeHtml(value) {

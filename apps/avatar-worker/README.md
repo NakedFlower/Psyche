@@ -204,6 +204,15 @@ Reply audio:    models/assets/speech-clean.wav
 The demo endpoint is blocking: it returns only after MuseTalk finishes creating
 `output.mp4`. This is intentional for the first turn-based call prototype.
 
+The worker also exposes the non-blocking job contract that the temporary UI now
+uses:
+
+```txt
+POST /v1/lipsync/jobs
+GET  /v1/lipsync/jobs/:jobId
+GET  /runs/lipsync/jobs/:jobId/output.mp4
+```
+
 ## Host Development Mode
 
 During R&D, Docker rebuilds are slow. Use a host-side virtual environment on
