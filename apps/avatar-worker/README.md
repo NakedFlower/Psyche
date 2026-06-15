@@ -66,9 +66,9 @@ scripts/benchmark-lipsync.sh --engine wav2lip --face models/assets/face.png --au
 scripts/benchmark-lipsync.sh --engine musetalk --face models/assets/face.png --audio models/assets/speech.wav
 ```
 
-`wav2lip`, `musetalk`, and `sadtalker` currently produce a blocked report with
-the expected command/input plan. Wire those adapters only after the model repos
-and checkpoints are installed on the GPU server.
+`sadtalker` currently produces a blocked report with the expected input plan.
+Wav2Lip and MuseTalk run when their external repos and weights exist under
+`models/`.
 
 Reports are written under `runs/lipsync/` and are intentionally ignored by git.
 
@@ -133,3 +133,44 @@ The current official Wav2Lip download may provide `.pt` files such as
 `Wav2Lip-SD-GAN.pt` instead of legacy `.pth` checkpoints. The benchmark runner
 patches the cloned `inference.py` loader to support both the current
 TorchScript checkpoint and the older `state_dict` format.
+
+## MuseTalk Baseline
+
+MuseTalk 1.5 is the next quality candidate after Wav2Lip. It is heavier to
+install, so keep it isolated in its own Docker image tag.
+
+Prepare the MuseTalk source tree and weights on the GPU server:
+
+```sh
+scripts/setup-musetalk.sh
+```
+
+Run the same assets through MuseTalk:
+
+```sh
+sudo scripts/avatar-worker-musetalk.sh
+```
+
+Useful overrides:
+
+```sh
+sudo env \
+  FACE_PATH=models/assets/face.mp4 \
+  AUDIO_PATH=models/assets/speech-clean.wav \
+  MUSETALK_USE_FLOAT16=1 \
+  MUSETALK_BATCH_SIZE=8 \
+  OUT_DIR=runs/lipsync/musetalk-face-video-test \
+  scripts/avatar-worker-musetalk.sh
+```
+
+Outputs:
+
+```txt
+runs/lipsync/musetalk-test/output.mp4
+runs/lipsync/musetalk-test/report.json
+runs/lipsync/musetalk-test/musetalk.stdout.log
+runs/lipsync/musetalk-test/musetalk.stderr.log
+```
+
+The first MuseTalk build and weight download are much heavier than Wav2Lip.
+Compare results using the same `face.mp4` and `speech-clean.wav` inputs.

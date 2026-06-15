@@ -21,11 +21,13 @@ models/
     repos/
       Wav2Lip/
   musetalk/
-    checkpoints/
     repos/
+      MuseTalk/
   assets/
-    face.png
+    face.jpg
+    face.mp4
     speech.wav
+    speech-clean.wav
 ```
 
 Keep large files out of git. Use `scripts/download-models.sh` to document how

@@ -69,6 +69,8 @@ def main() -> int:
             }
         elif args.engine == "wav2lip":
             run_wav2lip(args, out_dir, report, started)
+        elif args.engine == "musetalk":
+            run_musetalk(args, out_dir, report, started)
         else:
             report["status"] = "blocked"
             report["warnings"].append(
@@ -116,6 +118,20 @@ def parse_args() -> argparse.Namespace:
         ),
         help="Path to a Wav2Lip checkpoint. Supports legacy state_dict .pth and current TorchScript .pt files.",
     )
+    parser.add_argument(
+        "--musetalk-repo",
+        default=os.environ.get("MUSETALK_REPO", str(ROOT / "models" / "musetalk" / "repos" / "MuseTalk")),
+        help="Path to a cloned MuseTalk repository.",
+    )
+    parser.add_argument(
+        "--musetalk-version",
+        choices=["v1", "v15"],
+        default=os.environ.get("MUSETALK_VERSION", "v15"),
+        help="MuseTalk model version to run.",
+    )
+    parser.add_argument("--musetalk-batch-size", type=int, default=int(os.environ.get("MUSETALK_BATCH_SIZE", "8")))
+    parser.add_argument("--musetalk-use-float16", action="store_true", default=os.environ.get("MUSETALK_USE_FLOAT16") == "1")
+    parser.add_argument("--musetalk-bbox-shift", type=int, default=int(os.environ.get("MUSETALK_BBOX_SHIFT", "0")))
     return parser.parse_args()
 
 
@@ -269,9 +285,28 @@ def build_engine_plan(args: argparse.Namespace, out_dir: Path) -> dict[str, Any]
             ],
         }
     if args.engine == "musetalk":
+        repo = Path(args.musetalk_repo)
+        version_dir = "musetalkV15" if args.musetalk_version == "v15" else "musetalk"
+        unet_model = "unet.pth" if args.musetalk_version == "v15" else "pytorch_model.bin"
         return {
-            "adapter": "pending",
-            "expectedInputs": ["models/musetalk", args.face, args.audio],
+            "adapter": "musetalk",
+            "expectedCommand": [
+                sys.executable,
+                "-m",
+                "scripts.inference",
+                "--inference_config",
+                str(out_dir / "musetalk.inference.yaml"),
+                "--result_dir",
+                str(out_dir / "musetalk-results"),
+                "--unet_model_path",
+                str(repo / "models" / version_dir / unet_model),
+                "--unet_config",
+                str(repo / "models" / version_dir / "musetalk.json"),
+                "--whisper_dir",
+                str(repo / "models" / "whisper"),
+                "--version",
+                args.musetalk_version,
+            ],
             "expectedOutput": str(output),
         }
     if args.engine == "sadtalker":
@@ -387,6 +422,106 @@ def patch_wav2lip_inference(inference: Path) -> None:
             f"Could not patch Wav2Lip loader automatically. Unexpected inference.py layout: {inference}"
         )
     inference.write_text(source.replace(old, new), encoding="utf-8")
+
+
+def run_musetalk(args: argparse.Namespace, out_dir: Path, report: dict[str, Any], started: float) -> None:
+    repo = Path(args.musetalk_repo).resolve()
+    inference = repo / "scripts" / "inference.py"
+    result_dir = out_dir / "musetalk-results"
+    output = out_dir / "output.mp4"
+    stdout_log = out_dir / "musetalk.stdout.log"
+    stderr_log = out_dir / "musetalk.stderr.log"
+    config_path = out_dir / "musetalk.inference.yaml"
+
+    report["artifacts"] = {
+        "stdout": str(stdout_log),
+        "stderr": str(stderr_log),
+        "config": str(config_path),
+    }
+
+    if not inference.exists():
+        raise BenchmarkBlocked(f"MuseTalk repo is missing: {repo}. Run scripts/setup-musetalk.sh on the GPU server.")
+
+    version_dir = "musetalkV15" if args.musetalk_version == "v15" else "musetalk"
+    unet_model = "unet.pth" if args.musetalk_version == "v15" else "pytorch_model.bin"
+    required_paths = [
+        repo / "models" / version_dir / "musetalk.json",
+        repo / "models" / version_dir / unet_model,
+        repo / "models" / "sd-vae" / "config.json",
+        repo / "models" / "sd-vae" / "diffusion_pytorch_model.bin",
+        repo / "models" / "whisper" / "config.json",
+        repo / "models" / "dwpose" / "dw-ll_ucoco_384.pth",
+        repo / "models" / "face-parse-bisent" / "79999_iter.pth",
+    ]
+    missing = [str(path) for path in required_paths if not path.exists()]
+    if missing:
+        raise BenchmarkBlocked("MuseTalk weights are missing. Run scripts/setup-musetalk.sh. Missing: " + ", ".join(missing))
+
+    result_dir.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "task_0:",
+                f'  video_path: "{Path(args.face).resolve()}"',
+                f'  audio_path: "{Path(args.audio).resolve()}"',
+                '  result_name: "output.mp4"',
+                f"  bbox_shift: {args.musetalk_bbox_shift}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    command = [
+        sys.executable,
+        "-m",
+        "scripts.inference",
+        "--inference_config",
+        str(config_path),
+        "--result_dir",
+        str(result_dir),
+        "--unet_model_path",
+        str(repo / "models" / version_dir / unet_model),
+        "--unet_config",
+        str(repo / "models" / version_dir / "musetalk.json"),
+        "--whisper_dir",
+        str(repo / "models" / "whisper"),
+        "--version",
+        args.musetalk_version,
+        "--batch_size",
+        str(args.musetalk_batch_size),
+        "--ffmpeg_path",
+        "/usr/bin",
+    ]
+    if args.musetalk_use_float16:
+        command.append("--use_float16")
+    report["plan"]["command"] = command
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(repo) + os.pathsep + env.get("PYTHONPATH", "")
+    inference_started = time.perf_counter()
+    result = subprocess.run(command, cwd=repo, env=env, text=True, capture_output=True, check=False)
+    stdout_log.write_text(result.stdout, encoding="utf-8")
+    stderr_log.write_text(result.stderr, encoding="utf-8")
+
+    report["metrics"]["inferenceMs"] = round((time.perf_counter() - inference_started) * 1000)
+    report["metrics"]["wallClockMs"] = elapsed_ms(started)
+    report["metrics"]["gpuMemoryMb"] = collect_gpu_memory_mb()
+
+    candidate = result_dir / args.musetalk_version / "output.mp4"
+    if candidate.exists() and candidate.resolve() != output.resolve():
+        shutil.copyfile(candidate, output)
+
+    if result.returncode != 0:
+        tail = "\n".join((result.stderr or result.stdout).splitlines()[-30:])
+        raise BenchmarkError(f"MuseTalk failed with exit code {result.returncode}. log tail:\n{tail}")
+    if not output.exists():
+        raise BenchmarkError(f"MuseTalk completed but did not create output: {output}")
+
+    report["status"] = "ok"
+    report["output"]["video"] = str(output.resolve())
+    report["output"]["bytes"] = output.stat().st_size
+    report["output"]["videoMetadata"] = probe_media(output, report)
 
 
 def collect_gpu_memory_mb() -> int | None:

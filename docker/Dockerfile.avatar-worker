@@ -5,6 +5,7 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ARG INSTALL_WAV2LIP_DEPS=false
+ARG INSTALL_MUSETALK_DEPS=false
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -29,6 +30,18 @@ RUN if [ "$INSTALL_WAV2LIP_DEPS" = "true" ]; then \
       torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 \
       --index-url https://download.pytorch.org/whl/cu121 \
     && python3 -m pip install --no-cache-dir -r apps/avatar-worker/requirements-wav2lip.txt; \
+  fi
+RUN if [ "$INSTALL_MUSETALK_DEPS" = "true" ]; then \
+    python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && python3 -m pip install --no-cache-dir \
+      torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 \
+      --index-url https://download.pytorch.org/whl/cu118 \
+    && python3 -m pip install --no-cache-dir -r apps/avatar-worker/requirements-musetalk.txt \
+    && python3 -m pip install --no-cache-dir -U openmim \
+    && mim install mmengine \
+    && mim install "mmcv==2.0.1" \
+    && mim install "mmdet==3.1.0" \
+    && mim install "mmpose==1.1.0"; \
   fi
 
 CMD ["./scripts/benchmark-lipsync.sh", "--engine", "dry-run", "--generate-fixtures", "--out-dir", "runs/lipsync/docker-smoke"]
