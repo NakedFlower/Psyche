@@ -95,3 +95,36 @@ Reports are written under `runs/lipsync/` and are intentionally ignored by git.
 This smoke test does not run Wav2Lip or MuseTalk yet. It proves that the
 container, FFmpeg, input fixture generation, report writing, and mounted
 `models/` and `runs/` directories are ready before large model downloads.
+
+## Wav2Lip Baseline
+
+Prepare the Wav2Lip source tree:
+
+```sh
+scripts/setup-wav2lip.sh
+```
+
+Place these files on the GPU server:
+
+```txt
+models/assets/face.jpg
+models/assets/speech.wav
+models/wav2lip/checkpoints/wav2lip_gan.pth
+```
+
+Then build the Wav2Lip-enabled Docker image and run inference:
+
+```sh
+sudo scripts/avatar-worker-wav2lip.sh
+```
+
+Outputs:
+
+```txt
+runs/lipsync/wav2lip-test/output.mp4
+runs/lipsync/wav2lip-test/report.json
+runs/lipsync/wav2lip-test/wav2lip.stdout.log
+runs/lipsync/wav2lip-test/wav2lip.stderr.log
+```
+
+The first build installs PyTorch CUDA wheels and may take several minutes.

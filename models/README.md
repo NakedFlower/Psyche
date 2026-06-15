@@ -16,7 +16,9 @@ models/
   README.md
   wav2lip/
     checkpoints/
+      wav2lip_gan.pth
     repos/
+      Wav2Lip/
   musetalk/
     checkpoints/
     repos/

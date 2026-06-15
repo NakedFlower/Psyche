@@ -4,6 +4,7 @@ WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+ARG INSTALL_WAV2LIP_DEPS=false
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -22,5 +23,12 @@ COPY scripts/benchmark-lipsync.sh ./scripts/benchmark-lipsync.sh
 COPY models/README.md ./models/README.md
 
 RUN chmod +x ./scripts/benchmark-lipsync.sh
+RUN if [ "$INSTALL_WAV2LIP_DEPS" = "true" ]; then \
+    python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && python3 -m pip install --no-cache-dir \
+      torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 \
+      --index-url https://download.pytorch.org/whl/cu121 \
+    && python3 -m pip install --no-cache-dir -r apps/avatar-worker/requirements-wav2lip.txt; \
+  fi
 
 CMD ["./scripts/benchmark-lipsync.sh", "--engine", "dry-run", "--generate-fixtures", "--out-dir", "runs/lipsync/docker-smoke"]

@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Dependency-light offline lip-sync benchmark harness.
+"""Offline lip-sync benchmark harness.
 
-This script intentionally does not download or import Wav2Lip/MuseTalk. It
-validates inputs, captures media metadata with ffprobe, records environment
-context, and writes a benchmark JSON report. Engine adapters can be wired in
-once model repos/checkpoints exist on the GPU machine.
+The dry-run path stays dependency-light. Model adapters such as Wav2Lip run
+only when their external repos and checkpoints are mounted under models/.
 """
 
 from __future__ import annotations
@@ -69,6 +67,8 @@ def main() -> int:
                 "syncDriftMs": None,
                 "wallClockMs": elapsed_ms(started),
             }
+        elif args.engine == "wav2lip":
+            run_wav2lip(args, out_dir, report, started)
         else:
             report["status"] = "blocked"
             report["warnings"].append(
@@ -76,6 +76,10 @@ def main() -> int:
             )
             report["metrics"]["wallClockMs"] = elapsed_ms(started)
 
+    except BenchmarkBlocked as blocked:
+        report["status"] = "blocked"
+        report["warnings"].append(str(blocked))
+        report["metrics"]["wallClockMs"] = elapsed_ms(started)
     except BenchmarkError as error:
         report["status"] = "error"
         report["error"] = str(error)
@@ -99,6 +103,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fps", type=int, default=25, help="Target benchmark FPS.")
     parser.add_argument("--width", type=int, default=512, help="Target frame width.")
     parser.add_argument("--height", type=int, default=512, help="Target frame height.")
+    parser.add_argument(
+        "--wav2lip-repo",
+        default=os.environ.get("WAV2LIP_REPO", str(ROOT / "models" / "wav2lip" / "repos" / "Wav2Lip")),
+        help="Path to a cloned Wav2Lip repository.",
+    )
+    parser.add_argument(
+        "--wav2lip-checkpoint",
+        default=os.environ.get(
+            "WAV2LIP_CHECKPOINT",
+            str(ROOT / "models" / "wav2lip" / "checkpoints" / "wav2lip_gan.pth"),
+        ),
+        help="Path to wav2lip.pth or wav2lip_gan.pth.",
+    )
     return parser.parse_args()
 
 
@@ -237,12 +254,12 @@ def build_engine_plan(args: argparse.Namespace, out_dir: Path) -> dict[str, Any]
     output = out_dir / "output.mp4"
     if args.engine == "wav2lip":
         return {
-            "adapter": "pending",
+            "adapter": "wav2lip",
             "expectedCommand": [
-                "python",
-                "inference.py",
+                sys.executable,
+                str(Path(args.wav2lip_repo) / "inference.py"),
                 "--checkpoint_path",
-                "models/wav2lip/wav2lip_gan.pth",
+                args.wav2lip_checkpoint,
                 "--face",
                 args.face,
                 "--audio",
@@ -267,6 +284,85 @@ def build_engine_plan(args: argparse.Namespace, out_dir: Path) -> dict[str, Any]
         "adapter": "dry-run",
         "expectedOutput": str(output),
     }
+
+
+def run_wav2lip(args: argparse.Namespace, out_dir: Path, report: dict[str, Any], started: float) -> None:
+    repo = Path(args.wav2lip_repo).resolve()
+    checkpoint = Path(args.wav2lip_checkpoint).resolve()
+    inference = repo / "inference.py"
+    output = out_dir / "output.mp4"
+    stdout_log = out_dir / "wav2lip.stdout.log"
+    stderr_log = out_dir / "wav2lip.stderr.log"
+
+    report["artifacts"] = {
+        "stdout": str(stdout_log),
+        "stderr": str(stderr_log),
+    }
+
+    if not inference.exists():
+        raise BenchmarkBlocked(
+            f"Wav2Lip repo is missing: {repo}. Run scripts/setup-wav2lip.sh on the GPU server."
+        )
+    if not checkpoint.exists():
+        raise BenchmarkBlocked(
+            f"Wav2Lip checkpoint is missing: {checkpoint}. Place wav2lip_gan.pth there before inference."
+        )
+
+    command = [
+        sys.executable,
+        str(inference),
+        "--checkpoint_path",
+        str(checkpoint),
+        "--face",
+        str(Path(args.face).resolve()),
+        "--audio",
+        str(Path(args.audio).resolve()),
+        "--outfile",
+        str(output),
+    ]
+    report["plan"]["command"] = command
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(repo) + os.pathsep + env.get("PYTHONPATH", "")
+    inference_started = time.perf_counter()
+    result = subprocess.run(command, cwd=repo, env=env, text=True, capture_output=True, check=False)
+    stdout_log.write_text(result.stdout, encoding="utf-8")
+    stderr_log.write_text(result.stderr, encoding="utf-8")
+
+    report["metrics"]["inferenceMs"] = round((time.perf_counter() - inference_started) * 1000)
+    report["metrics"]["wallClockMs"] = elapsed_ms(started)
+    report["metrics"]["gpuMemoryMb"] = collect_gpu_memory_mb()
+
+    if result.returncode != 0:
+        tail = "\n".join(result.stderr.splitlines()[-20:])
+        raise BenchmarkError(f"Wav2Lip failed with exit code {result.returncode}. stderr tail:\n{tail}")
+    if not output.exists():
+        raise BenchmarkError(f"Wav2Lip completed but did not create output: {output}")
+
+    report["status"] = "ok"
+    report["output"]["video"] = str(output.resolve())
+    report["output"]["bytes"] = output.stat().st_size
+    report["output"]["videoMetadata"] = probe_media(output, report)
+
+
+def collect_gpu_memory_mb() -> int | None:
+    nvidia_smi = shutil.which("nvidia-smi")
+    if not nvidia_smi:
+        return None
+    result = run(
+        [
+            nvidia_smi,
+            "--query-gpu=memory.used",
+            "--format=csv,noheader,nounits",
+        ],
+        check=False,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    try:
+        return int(result.stdout.splitlines()[0].strip())
+    except ValueError:
+        return None
 
 
 def write_report(out_dir: Path, report: dict[str, Any]) -> None:
@@ -300,6 +396,10 @@ def elapsed_ms(started: float) -> int:
 
 
 class BenchmarkError(Exception):
+    pass
+
+
+class BenchmarkBlocked(Exception):
     pass
 
 
