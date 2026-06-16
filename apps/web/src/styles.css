@@ -216,6 +216,39 @@ h2 {
   background: #090b0a;
 }
 
+.idle-avatar img {
+  filter: saturate(1.02) contrast(1.03);
+}
+
+.avatar-mouth {
+  position: absolute;
+  left: 50%;
+  top: 58%;
+  width: min(9vw, 72px);
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(20, 18, 17, 0.86);
+  box-shadow: 0 0 0 2px rgba(244, 242, 236, 0.08);
+  transform: translate(-50%, -50%);
+  opacity: 0.78;
+  pointer-events: none;
+}
+
+.idle-avatar.speaking .avatar-mouth {
+  animation: avatar-mouth-talk 160ms infinite alternate ease-in-out;
+}
+
+@keyframes avatar-mouth-talk {
+  from {
+    height: 7px;
+    transform: translate(-50%, -50%) scaleX(0.88);
+  }
+  to {
+    height: 28px;
+    transform: translate(-50%, -50%) scaleX(1.08);
+  }
+}
+
 .media-card audio {
   width: 100%;
 }

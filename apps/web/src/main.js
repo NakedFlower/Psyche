@@ -4,7 +4,10 @@ const state = {
   room: null,
   remoteElements: new Map(),
   localElements: [],
-  hiddenAudioElements: []
+  hiddenAudioElements: [],
+  defaultAvatarUrl: "",
+  avatarSpeaking: false,
+  avatarSpeakingTimer: null
 };
 
 const elements = {
@@ -35,6 +38,12 @@ const elements = {
   voiceCloneGender: document.getElementById("voiceCloneGender"),
   voiceConsent: document.getElementById("voiceConsent"),
   cloneVoiceButton: document.getElementById("cloneVoiceButton"),
+  futureImageForm: document.getElementById("futureImageForm"),
+  futureImagePhoto: document.getElementById("futureImagePhoto"),
+  futureImageYears: document.getElementById("futureImageYears"),
+  futureImageStyle: document.getElementById("futureImageStyle"),
+  generateFutureImageButton: document.getElementById("generateFutureImageButton"),
+  futureImageStatus: document.getElementById("futureImageStatus"),
   avatarDemoForm: document.getElementById("avatarDemoForm"),
   avatarWorkerUrl: document.getElementById("avatarWorkerUrl"),
   avatarEngine: document.getElementById("avatarEngine"),
@@ -76,6 +85,11 @@ elements.personaForm.addEventListener("submit", async (event) => {
 elements.voiceCloneForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   await cloneVoiceFromUpload();
+});
+
+elements.futureImageForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await generateFutureImage();
 });
 
 elements.avatarDemoForm.addEventListener("submit", async (event) => {
@@ -276,6 +290,54 @@ async function cloneVoiceFromUpload() {
   } finally {
     elements.cloneVoiceButton.disabled = false;
     elements.cloneVoiceButton.textContent = "Clone voice";
+  }
+}
+
+async function generateFutureImage() {
+  const [photo] = elements.futureImagePhoto.files || [];
+  if (!photo) {
+    elements.futureImageStatus.textContent = "Choose a current photo first";
+    return;
+  }
+
+  elements.generateFutureImageButton.disabled = true;
+  elements.generateFutureImageButton.textContent = "Generating...";
+  elements.futureImageStatus.textContent = "Creating future face...";
+
+  try {
+    const form = new FormData();
+    form.append("photo", photo);
+    form.append("targetYears", elements.futureImageYears.value);
+    form.append("style", elements.futureImageStyle.value);
+
+    const response = await fetch("/api/avatar/future-image", {
+      method: "POST",
+      body: form
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error ? JSON.stringify(result, null, 2) : JSON.stringify(result));
+    }
+
+    state.defaultAvatarUrl = `${result.imageUrl}?t=${Date.now()}`;
+    renderDefaultAvatar();
+    elements.futureImageStatus.textContent = "Future face ready";
+    setSetupOutput({
+      type: "future-image.generated",
+      imageUrl: result.imageUrl,
+      outputFile: result.outputFile,
+      model: result.model,
+      targetYears: result.targetYears,
+      style: result.style
+    });
+    appendEvent("avatar", `Future face generated ${result.outputFile}`);
+  } catch (error) {
+    elements.futureImageStatus.textContent = "Future face generation failed";
+    setSetupOutput({ type: "future-image.error", message: error.message });
+    appendEvent("error", error.message);
+  } finally {
+    elements.generateFutureImageButton.disabled = false;
+    elements.generateFutureImageButton.textContent = "Generate future face";
   }
 }
 
@@ -501,6 +563,13 @@ function bindRoomEvents(room) {
         elements.askAvatarStatus.textContent =
           `Avatar video ready in ${(decoded.latencyMs / 1000).toFixed(1)}s` +
           (decoded.clippedAudioSeconds ? ` (${decoded.clippedAudioSeconds}s audio)` : "");
+        setAvatarSpeaking(true, Math.max(1200, Number(decoded.clippedAudioSeconds || 3) * 1000));
+      }
+      if (decoded?.type === "agent.state") {
+        const isSpeaking = decoded.state === "speaking";
+        const isIdle = ["idle", "listening", "thinking", "avatar-error"].includes(decoded.state);
+        if (isSpeaking) setAvatarSpeaking(true);
+        if (isIdle) setAvatarSpeaking(false);
       }
       appendEvent(participant?.identity || "data", {
         topic,
@@ -640,13 +709,14 @@ function renderGeneratedAvatar(videoUrl, options = {}) {
 function renderDefaultAvatar() {
   const workerUrl = normalizeBaseUrl(elements.avatarWorkerUrl?.value || "http://127.0.0.1:8080");
   const facePath = String(elements.avatarFacePath?.value || "models/assets/face-still.jpg").replace(/^\/+/, "");
-  const imageUrl = `${workerUrl}/${facePath}?t=${Date.now()}`;
+  const imageUrl = state.defaultAvatarUrl || `${workerUrl}/${facePath}?t=${Date.now()}`;
 
   elements.remoteMedia.classList.remove("empty");
   elements.remoteMedia.textContent = "";
 
   const wrapper = document.createElement("article");
   wrapper.className = "media-card video idle-avatar";
+  wrapper.classList.toggle("speaking", state.avatarSpeaking);
 
   const image = document.createElement("img");
   image.src = imageUrl;
@@ -657,13 +727,29 @@ function renderDefaultAvatar() {
   label.className = "media-label";
   label.textContent = "AI Future Self / waiting";
 
+  const mouth = document.createElement("div");
+  mouth.className = "avatar-mouth";
+
   image.addEventListener("error", () => {
     elements.remoteMedia.classList.add("empty");
     elements.remoteMedia.textContent = "AI Future Self waiting";
   });
 
-  wrapper.append(image, label);
+  wrapper.append(image, mouth, label);
   elements.remoteMedia.append(wrapper);
+}
+
+function setAvatarSpeaking(isSpeaking, autoStopMs = 0) {
+  state.avatarSpeaking = Boolean(isSpeaking);
+  clearTimeout(state.avatarSpeakingTimer);
+  state.avatarSpeakingTimer = null;
+
+  const idleAvatar = elements.remoteMedia.querySelector(".idle-avatar");
+  idleAvatar?.classList.toggle("speaking", state.avatarSpeaking);
+
+  if (state.avatarSpeaking && autoStopMs > 0) {
+    state.avatarSpeakingTimer = setTimeout(() => setAvatarSpeaking(false), autoStopMs);
+  }
 }
 
 function normalizeBaseUrl(value) {

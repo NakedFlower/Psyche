@@ -51,8 +51,16 @@ const server = http.createServer(async (req, res) => {
       return await cloneVoice(req, res);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/avatar/future-image") {
+      return await createFutureImage(req, res);
+    }
+
     if (req.method === "POST" && url.pathname === "/api/avatar/reply") {
       return await createAvatarReply(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname.startsWith("/runs/")) {
+      return serveRunArtifact(url.pathname, res, req.method === "HEAD");
     }
 
     if (req.method === "GET" || req.method === "HEAD") {
@@ -261,6 +269,83 @@ async function createAvatarReply(req, res) {
   return sendJson(res, result.status, result.payload);
 }
 
+async function createFutureImage(req, res) {
+  const apiKey = process.env.OPENAI_IMAGE_API_KEY || process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return sendJson(res, 400, {
+      error: "Missing OpenAI image API key",
+      missing: ["OPENAI_IMAGE_API_KEY or OPENAI_API_KEY"]
+    });
+  }
+
+  const form = await readMultipartForm(req, { maxBytes: 25 * 1024 * 1024 });
+  const photo = form.files.photo;
+  if (!photo?.data?.length) {
+    return sendJson(res, 400, { error: "Missing image file field: photo" });
+  }
+
+  const targetYears = String(form.fields.targetYears || "10").slice(0, 12);
+  const style = String(form.fields.style || "natural").slice(0, 80);
+  const originalName = path.basename(photo.filename || "portrait.png");
+  const safeName = originalName.replace(/[^\w.-]/g, "-").slice(0, 120) || "portrait.png";
+  const inputPath = path.resolve(rootDir, "runs/future-images/uploads", `${Date.now()}-${safeName}`);
+  fs.mkdirSync(path.dirname(inputPath), { recursive: true });
+  fs.writeFileSync(inputPath, photo.data);
+
+  const prompt = [
+    `Transform this user-provided portrait into a plausible ${targetYears}-years-in-the-future version of the same person.`,
+    "Preserve identity, face structure, ethnicity, and recognizable features.",
+    "Make it a natural photorealistic portrait suitable for a video-call avatar.",
+    "Do not change the person into a celebrity or a different person.",
+    "Keep the expression calm and approachable, looking toward the camera.",
+    `Style preference: ${style}.`
+  ].join(" ");
+
+  const imageForm = new FormData();
+  imageForm.append("model", process.env.OPENAI_IMAGE_MODEL || "gpt-image-1");
+  imageForm.append("prompt", prompt);
+  imageForm.append("size", process.env.OPENAI_IMAGE_SIZE || "1024x1024");
+  imageForm.append("image", new Blob([photo.data], { type: photo.contentType || "image/png" }), safeName);
+
+  const response = await fetch("https://api.openai.com/v1/images/edits", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: imageForm
+  });
+  const result = await readFetchResponse(response);
+  if (!response.ok) {
+    return sendJson(res, response.status, {
+      error: "Future image generation failed",
+      details: result
+    });
+  }
+
+  const b64 = result.data?.[0]?.b64_json;
+  if (!b64) {
+    return sendJson(res, 502, {
+      error: "Future image generation returned no image",
+      details: result
+    });
+  }
+
+  const outputPath = path.resolve(rootDir, "runs/future-images", `future-${Date.now()}.png`);
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  fs.writeFileSync(outputPath, Buffer.from(b64, "base64"));
+
+  return sendJson(res, 200, {
+    ok: true,
+    inputFile: path.relative(rootDir, inputPath),
+    outputFile: path.relative(rootDir, outputPath),
+    imageUrl: `/${path.relative(rootDir, outputPath).replaceAll(path.sep, "/")}`,
+    provider: "openai",
+    model: process.env.OPENAI_IMAGE_MODEL || "gpt-image-1",
+    targetYears,
+    style
+  });
+}
+
 function signLiveKitJwt({ apiKey, apiSecret, identity, name, grants, ttlSeconds }) {
   const now = Math.floor(Date.now() / 1000);
   const header = {
@@ -306,6 +391,27 @@ function serveStatic(urlPath, res, headOnly = false) {
   if (headOnly) {
     return res.end();
   }
+  fs.createReadStream(candidate).pipe(res);
+}
+
+function serveRunArtifact(urlPath, res, headOnly = false) {
+  const relative = decodeURIComponent(urlPath).replace(/^\/+/, "");
+  const candidate = path.resolve(rootDir, relative);
+  const runsDir = path.resolve(rootDir, "runs");
+  if (!candidate.startsWith(runsDir)) {
+    return sendJson(res, 403, { error: "Forbidden" });
+  }
+  if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) {
+    return sendJson(res, 404, { error: "Not found" });
+  }
+
+  const contentType = getContentType(candidate);
+  res.writeHead(200, {
+    "Content-Type": contentType,
+    "Cache-Control": "no-store",
+    "Access-Control-Allow-Origin": "*"
+  });
+  if (headOnly) return res.end();
   fs.createReadStream(candidate).pipe(res);
 }
 
@@ -435,6 +541,9 @@ function getContentType(filePath) {
   if (ext === ".css") return "text/css; charset=utf-8";
   if (ext === ".json") return "application/json; charset=utf-8";
   if (ext === ".svg") return "image/svg+xml";
+  if (ext === ".png") return "image/png";
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".webp") return "image/webp";
   return "application/octet-stream";
 }
 

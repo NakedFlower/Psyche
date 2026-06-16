@@ -151,6 +151,34 @@
           <pre id="setupOutput">No persona or voice generated yet</pre>
         </div>
 
+        <form id="futureImageForm" class="setup-form avatar-demo-form">
+          <h2>Future Face</h2>
+          <label>
+            Current photo
+            <input id="futureImagePhoto" name="photo" type="file" accept="image/png,image/jpeg,image/webp" />
+          </label>
+          <div class="form-grid">
+            <label>
+              Years
+              <select id="futureImageYears">
+                <option value="10">10 years</option>
+                <option value="20">20 years</option>
+                <option value="30">30 years</option>
+              </select>
+            </label>
+            <label>
+              Style
+              <select id="futureImageStyle">
+                <option value="natural video-call portrait">natural</option>
+                <option value="successful but realistic professional portrait">successful</option>
+                <option value="tired but resilient realistic portrait">resilient</option>
+              </select>
+            </label>
+          </div>
+          <button id="generateFutureImageButton" type="submit">Generate future face</button>
+          <div id="futureImageStatus" class="demo-status">Future face waiting</div>
+        </form>
+
         <form id="avatarDemoForm" class="setup-form avatar-demo-form">
           <h2>Avatar Preview</h2>
           <label>

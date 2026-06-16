@@ -353,9 +353,18 @@ async function createAndPublishAvatarVideo({ audioChunks, replyText, responseId,
     });
 
     if (config.ttsProvider === "elevenlabs" && config.videoReplyPlayElevenLabsOnReady && replyText) {
+      await publishAgentState(room, "speaking", {
+        responseId,
+        reason: "avatar.video.ready",
+        ttsProvider: "elevenlabs"
+      });
       await elevenLabsOutput?.speak(replyText, {
         reason: "avatar.video.ready",
         responseId
+      });
+      await publishAgentState(room, "idle", {
+        responseId,
+        reason: "avatar-video-speech-finished"
       });
     }
   } catch (error) {
