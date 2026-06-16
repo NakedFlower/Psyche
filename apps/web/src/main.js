@@ -5,7 +5,8 @@ const state = {
   remoteElements: new Map(),
   localElements: [],
   hiddenAudioElements: [],
-  defaultAvatarUrl: "",
+  defaultAvatarUrl: localStorage.getItem("psyche.futureAvatarUrl") || "",
+  uploadedAvatarPreviewUrl: "",
   avatarSpeaking: false,
   avatarSpeakingTimer: null
 };
@@ -91,6 +92,8 @@ elements.futureImageForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   await generateFutureImage();
 });
+
+elements.futureImagePhoto.addEventListener("change", previewUploadedFutureImage);
 
 elements.avatarDemoForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -320,6 +323,7 @@ async function generateFutureImage() {
     }
 
     state.defaultAvatarUrl = `${result.imageUrl}?t=${Date.now()}`;
+    localStorage.setItem("psyche.futureAvatarUrl", state.defaultAvatarUrl);
     renderDefaultAvatar();
     elements.futureImageStatus.textContent = "Future face ready";
     setSetupOutput({
@@ -339,6 +343,20 @@ async function generateFutureImage() {
     elements.generateFutureImageButton.disabled = false;
     elements.generateFutureImageButton.textContent = "Generate future face";
   }
+}
+
+function previewUploadedFutureImage() {
+  const [photo] = elements.futureImagePhoto.files || [];
+  if (!photo) return;
+
+  if (state.uploadedAvatarPreviewUrl) {
+    URL.revokeObjectURL(state.uploadedAvatarPreviewUrl);
+  }
+
+  state.uploadedAvatarPreviewUrl = URL.createObjectURL(photo);
+  state.defaultAvatarUrl = state.uploadedAvatarPreviewUrl;
+  elements.futureImageStatus.textContent = "Photo preview ready";
+  renderDefaultAvatar();
 }
 
 async function generateAvatarDemo() {
@@ -580,6 +598,12 @@ function bindRoomEvents(room) {
 }
 
 function attachRemoteTrack(track, publication, participant) {
+  if (track.kind === Track.Kind.Video && publication.trackName === "agent-placeholder-video") {
+    appendEvent("track", `${participant.identity} placeholder video ignored`);
+    renderDefaultAvatar();
+    return;
+  }
+
   if (track.kind === Track.Kind.Audio) {
     const audio = track.attach();
     audio.autoplay = true;

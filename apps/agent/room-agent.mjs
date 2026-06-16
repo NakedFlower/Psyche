@@ -65,6 +65,7 @@ const config = {
   fps: Number(process.env.AVATAR_AGENT_FPS || 10),
   width: Number(process.env.AVATAR_AGENT_VIDEO_WIDTH || 640),
   height: Number(process.env.AVATAR_AGENT_VIDEO_HEIGHT || 360),
+  publishPlaceholderVideo: process.env.AVATAR_AGENT_PUBLISH_PLACEHOLDER_VIDEO === "true",
   mockAvatarEnabled: process.env.AVATAR_AGENT_MOCK_AVATAR_ENABLED !== "false",
   mockAvatarGain: Number(process.env.AVATAR_AGENT_MOCK_AVATAR_GAIN || 18),
   mockAvatarDecay: Number(process.env.AVATAR_AGENT_MOCK_AVATAR_DECAY || 0.72)
@@ -166,7 +167,9 @@ if (config.mode === "realtime") {
 } else {
   await publishPlaceholderAudio(room);
 }
-await publishPlaceholderVideo(room);
+if (config.publishPlaceholderVideo) {
+  await publishPlaceholderVideo(room);
+}
 startHeartbeat(room);
 
 process.on("SIGINT", shutdown);
