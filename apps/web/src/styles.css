@@ -206,7 +206,8 @@ h2 {
   padding: 1rem;
 }
 
-.media-card video {
+.media-card video,
+.media-card img {
   display: block;
   width: 100%;
   height: 100%;
