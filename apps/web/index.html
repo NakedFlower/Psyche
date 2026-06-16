@@ -207,7 +207,10 @@
             Upload reply audio
             <input id="avatarAudioFile" type="file" accept=".wav,.mp3,.m4a,.aac,audio/*" />
           </label>
-          <button id="generateAvatarButton" type="submit">Generate avatar reply</button>
+          <div class="form-grid">
+            <button id="generateAvatarButton" type="submit">Generate avatar reply</button>
+            <button id="generateLoopButton" type="button">Generate speaking loop</button>
+          </div>
           <div id="avatarDemoStatus" class="demo-status">GPU worker waiting</div>
         </form>
 

@@ -6,6 +6,7 @@ const state = {
   localElements: [],
   hiddenAudioElements: [],
   defaultAvatarUrl: localStorage.getItem("psyche.futureAvatarUrl") || "",
+  speakingLoopUrl: localStorage.getItem("psyche.speakingLoopUrl") || "",
   uploadedAvatarPreviewUrl: "",
   avatarSpeaking: false,
   avatarSpeakingTimer: null
@@ -52,6 +53,7 @@ const elements = {
   avatarAudioPath: document.getElementById("avatarAudioPath"),
   avatarAudioFile: document.getElementById("avatarAudioFile"),
   generateAvatarButton: document.getElementById("generateAvatarButton"),
+  generateLoopButton: document.getElementById("generateLoopButton"),
   avatarDemoStatus: document.getElementById("avatarDemoStatus"),
   askAvatarForm: document.getElementById("askAvatarForm"),
   avatarQuestion: document.getElementById("avatarQuestion"),
@@ -98,6 +100,9 @@ elements.futureImagePhoto.addEventListener("change", previewUploadedFutureImage)
 elements.avatarDemoForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   await generateAvatarDemo();
+});
+elements.generateLoopButton.addEventListener("click", async () => {
+  await generateSpeakingLoop();
 });
 
 elements.avatarWorkerUrl.addEventListener("change", renderDefaultAvatar);
@@ -394,6 +399,48 @@ async function generateAvatarDemo() {
   } finally {
     elements.generateAvatarButton.disabled = false;
     elements.generateAvatarButton.textContent = "Generate avatar reply";
+  }
+}
+
+async function generateSpeakingLoop() {
+  const workerUrl = normalizeBaseUrl(elements.avatarWorkerUrl.value);
+  elements.generateLoopButton.disabled = true;
+  elements.generateLoopButton.textContent = "Generating...";
+  elements.avatarDemoStatus.textContent = "Creating speaking loop...";
+  appendEvent("avatar", `Generating speaking loop via ${workerUrl}`);
+
+  try {
+    const response = await createAvatarJob(workerUrl);
+    const job = await response.json();
+    if (!response.ok) {
+      throw new Error(job.error || JSON.stringify(job));
+    }
+
+    const result = await pollAvatarJob(workerUrl, job.jobId, {
+      onStatus: (statusText) => {
+        elements.avatarDemoStatus.textContent = `Loop ${statusText}`;
+      }
+    });
+
+    state.speakingLoopUrl = `${workerUrl}${result.videoUrl}?t=${Date.now()}`;
+    localStorage.setItem("psyche.speakingLoopUrl", state.speakingLoopUrl);
+    renderDefaultAvatar();
+    elements.avatarDemoStatus.textContent = "Speaking loop ready";
+    setSetupOutput({
+      type: "avatar.loop.generated",
+      jobId: result.jobId,
+      loopVideoUrl: state.speakingLoopUrl,
+      reportUrl: `${workerUrl}${result.reportUrl}`,
+      metrics: result.report?.metrics
+    });
+    appendEvent("avatar", `Speaking loop ready ${result.videoUrl}`);
+  } catch (error) {
+    elements.avatarDemoStatus.textContent = "Speaking loop failed";
+    setSetupOutput({ type: "avatar.loop.error", message: error.message });
+    appendEvent("error", error.message);
+  } finally {
+    elements.generateLoopButton.disabled = false;
+    elements.generateLoopButton.textContent = "Generate speaking loop";
   }
 }
 
@@ -781,35 +828,52 @@ function renderDefaultAvatar() {
   const wrapper = document.createElement("article");
   wrapper.className = "media-card video idle-avatar";
   wrapper.classList.toggle("speaking", state.avatarSpeaking);
-
-  const image = document.createElement("img");
-  image.src = imageUrl;
-  image.alt = "AI Future Self";
-  image.loading = "eager";
+  const showSpeakingLoop = state.avatarSpeaking && state.speakingLoopUrl;
+  const media = showSpeakingLoop ? document.createElement("video") : document.createElement("img");
+  if (showSpeakingLoop) {
+    media.src = state.speakingLoopUrl;
+    media.autoplay = true;
+    media.loop = true;
+    media.muted = true;
+    media.playsInline = true;
+  } else {
+    media.src = imageUrl;
+    media.alt = "AI Future Self";
+    media.loading = "eager";
+  }
 
   const label = document.createElement("div");
   label.className = "media-label";
-  label.textContent = "AI Future Self / waiting";
+  label.textContent = showSpeakingLoop ? "AI Future Self / speaking loop" : "AI Future Self / waiting";
 
   const mouth = document.createElement("div");
   mouth.className = "avatar-mouth";
 
-  image.addEventListener("error", () => {
+  media.addEventListener("error", () => {
     elements.remoteMedia.classList.add("empty");
     elements.remoteMedia.textContent = "AI Future Self waiting";
   });
 
-  wrapper.append(image, mouth, label);
+  if (showSpeakingLoop) {
+    wrapper.append(media, label);
+  } else {
+    wrapper.append(media, mouth, label);
+  }
   elements.remoteMedia.append(wrapper);
 }
 
 function setAvatarSpeaking(isSpeaking, autoStopMs = 0) {
+  const changed = state.avatarSpeaking !== Boolean(isSpeaking);
   state.avatarSpeaking = Boolean(isSpeaking);
   clearTimeout(state.avatarSpeakingTimer);
   state.avatarSpeakingTimer = null;
 
-  const idleAvatar = elements.remoteMedia.querySelector(".idle-avatar");
-  idleAvatar?.classList.toggle("speaking", state.avatarSpeaking);
+  if (changed) {
+    renderDefaultAvatar();
+  } else {
+    const idleAvatar = elements.remoteMedia.querySelector(".idle-avatar");
+    idleAvatar?.classList.toggle("speaking", state.avatarSpeaking);
+  }
 
   if (state.avatarSpeaking && autoStopMs > 0) {
     state.avatarSpeakingTimer = setTimeout(() => setAvatarSpeaking(false), autoStopMs);
