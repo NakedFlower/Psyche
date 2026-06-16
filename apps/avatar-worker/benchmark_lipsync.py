@@ -505,8 +505,9 @@ def run_musetalk(args: argparse.Namespace, out_dir: Path, report: dict[str, Any]
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(repo) + os.pathsep + env.get("PYTHONPATH", "")
+    report["environment"]["torch"] = collect_torch_environment(sys.executable, repo, env)
     inference_started = time.perf_counter()
-    result = subprocess.run(command, cwd=repo, env=env, text=True, capture_output=True, check=False)
+    result, gpu_samples = run_with_gpu_monitor(command, cwd=repo, env=env)
     stdout_log.write_text(result.stdout, encoding="utf-8")
     stderr_log.write_text(result.stderr, encoding="utf-8")
     stage_timings["subprocessMs"] = elapsed_ms(stage_started)
@@ -514,6 +515,9 @@ def run_musetalk(args: argparse.Namespace, out_dir: Path, report: dict[str, Any]
     report["metrics"]["inferenceMs"] = round((time.perf_counter() - inference_started) * 1000)
     report["metrics"]["wallClockMs"] = elapsed_ms(started)
     report["metrics"]["gpuMemoryMb"] = collect_gpu_memory_mb()
+    report["metrics"]["gpuSamples"] = gpu_samples[-20:]
+    report["metrics"]["maxGpuMemoryMb"] = max((sample.get("memoryMb") or 0 for sample in gpu_samples), default=0)
+    report["metrics"]["maxGpuUtilizationPct"] = max((sample.get("utilizationPct") or 0 for sample in gpu_samples), default=0)
     report["metrics"]["stageTimings"] = stage_timings
 
     stage_started = time.perf_counter()
@@ -569,6 +573,113 @@ def media_duration_seconds(metadata: dict[str, Any] | None) -> float | None:
     try:
         return float(duration)
     except (TypeError, ValueError):
+        return None
+
+
+def collect_torch_environment(python: str, cwd: Path, env: dict[str, str]) -> dict[str, Any]:
+    code = "\n".join(
+        [
+            "import json",
+            "try:",
+            "    import torch",
+            "    payload = {",
+            "        'version': torch.__version__,",
+            "        'cudaAvailable': torch.cuda.is_available(),",
+            "        'cudaVersion': torch.version.cuda,",
+            "        'deviceCount': torch.cuda.device_count(),",
+            "        'deviceName': torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,",
+            "    }",
+            "except Exception as error:",
+            "    payload = {'error': str(error)}",
+            "print(json.dumps(payload))",
+        ]
+    )
+    result = subprocess.run(
+        [python, "-c", code],
+        cwd=cwd,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return {"error": result.stderr.strip() or result.stdout.strip()}
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {"error": result.stdout.strip()}
+
+
+def run_with_gpu_monitor(
+    command: list[str],
+    cwd: Path,
+    env: dict[str, str],
+    sample_interval_sec: float = 1.0,
+) -> tuple[subprocess.CompletedProcess[str], list[dict[str, Any]]]:
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    samples: list[dict[str, Any]] = []
+    started = time.perf_counter()
+    while True:
+        try:
+            stdout, stderr = process.communicate(timeout=sample_interval_sec)
+            samples.append(collect_gpu_sample(started))
+            return subprocess.CompletedProcess(command, process.returncode, stdout, stderr), samples
+        except subprocess.TimeoutExpired:
+            samples.append(collect_gpu_sample(started))
+
+
+def collect_gpu_sample(started: float) -> dict[str, Any]:
+    sample: dict[str, Any] = {"elapsedMs": elapsed_ms(started)}
+    nvidia_smi = shutil.which("nvidia-smi")
+    if not nvidia_smi:
+        sample["error"] = "nvidia-smi not found"
+        return sample
+
+    gpu = subprocess.run(
+        [
+            nvidia_smi,
+            "--query-gpu=memory.used,utilization.gpu",
+            "--format=csv,noheader,nounits",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if gpu.returncode == 0 and gpu.stdout.strip():
+        first = gpu.stdout.strip().splitlines()[0]
+        parts = [part.strip() for part in first.split(",")]
+        if len(parts) >= 2:
+            sample["memoryMb"] = parse_int(parts[0])
+            sample["utilizationPct"] = parse_int(parts[1])
+    else:
+        sample["gpuError"] = gpu.stderr.strip()
+
+    apps = subprocess.run(
+        [
+            nvidia_smi,
+            "--query-compute-apps=pid,process_name,used_memory",
+            "--format=csv,noheader,nounits",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if apps.returncode == 0 and apps.stdout.strip():
+        sample["processes"] = [line.strip() for line in apps.stdout.strip().splitlines()]
+    return sample
+
+
+def parse_int(value: str) -> int | None:
+    try:
+        return int(value)
+    except ValueError:
         return None
 
 

@@ -38,7 +38,10 @@ Important fields:
 - `metrics.stageTimings.subprocessMs`: time spent inside MuseTalk inference process.
 - `metrics.inferenceRealtimeFactor`: audio seconds divided by inference seconds. `1.0` means realtime speed.
 - `metrics.wallClockRealtimeFactor`: audio seconds divided by full request wall-clock seconds.
-- `metrics.gpuMemoryMb`: peak-ish GPU memory snapshot after inference.
+- `environment.torch.cudaAvailable`: whether the MuseTalk Python environment can see CUDA.
+- `metrics.maxGpuMemoryMb`: maximum sampled GPU memory while MuseTalk was running.
+- `metrics.maxGpuUtilizationPct`: maximum sampled GPU utilization while MuseTalk was running.
+- `metrics.gpuSamples`: final sampled `nvidia-smi` readings from the run.
 
 If almost all time is in `subprocessMs`, the next optimization target is a
 persistent MuseTalk worker that keeps Python imports and model weights warm
