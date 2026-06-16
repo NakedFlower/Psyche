@@ -265,12 +265,12 @@ async function createAvatarReply(req, res) {
     return sendJson(res, 400, { error: "Missing question" });
   }
 
-  const workerUrl = String(body.workerUrl || process.env.AVATAR_WORKER_URL || "http://localhost:8080").replace(/\/+$/, "");
+  const workerUrl = String(body.workerUrl || process.env.AVATAR_WORKER_URL || "http://127.0.0.1:8080").replace(/\/+$/, "");
   const facePath = String(body.facePath || "models/assets/face.mp4").trim();
   const persona = loadPersonaForReply(body.personaFile);
   const { chatWithAzureOpenAI } = await import("./azure-openai-runtime.mjs");
 
-  const reply = await chatWithAzureOpenAI({
+  const reply = await runStage("azure.reply", () => chatWithAzureOpenAI({
     system: [
       persona?.realtimeInstructions || "너는 Psyche의 미래 자아다. 한국어로 짧고 자연스럽게 답한다.",
       "",
@@ -284,7 +284,7 @@ async function createAvatarReply(req, res) {
     ].join("\n"),
     maxTokens: Number(process.env.AVATAR_REPLY_MAX_TOKENS || 700),
     temperature: Number(process.env.AVATAR_REPLY_TEMPERATURE || 0.75)
-  });
+  }));
 
   const replyText = reply.text.trim();
   if (!replyText) {
@@ -303,7 +303,7 @@ async function createAvatarReply(req, res) {
     });
   }
 
-  const audio = await synthesizeElevenLabsMp3(replyText);
+  const audio = await runStage("elevenlabs.tts", () => synthesizeElevenLabsMp3(replyText));
   const audioFile = path.resolve(rootDir, "runs/avatar-replies", `reply-${Date.now()}.mp3`);
   fs.mkdirSync(path.dirname(audioFile), { recursive: true });
   fs.writeFileSync(audioFile, audio);
@@ -314,10 +314,10 @@ async function createAvatarReply(req, res) {
   form.append("useFloat16", "true");
   form.append("audio", new Blob([audio], { type: "audio/mpeg" }), path.basename(audioFile));
 
-  const workerResponse = await fetch(`${workerUrl}/v1/lipsync/jobs`, {
+  const workerResponse = await runStage("avatar-worker.job", () => fetch(`${workerUrl}/v1/lipsync/jobs`, {
     method: "POST",
     body: form
-  });
+  }));
   const workerJob = await readFetchResponse(workerResponse);
   if (!workerResponse.ok) {
     return sendJson(res, workerResponse.status, {
@@ -375,6 +375,23 @@ async function synthesizeElevenLabsMp3(text) {
     throw new Error(`ElevenLabs TTS failed (${response.status}): ${typeof result === "string" ? result : JSON.stringify(result)}`);
   }
   return Buffer.from(await response.arrayBuffer());
+}
+
+async function runStage(stage, task) {
+  try {
+    return await task();
+  } catch (error) {
+    const cause = error.cause
+      ? {
+          message: error.cause.message,
+          code: error.cause.code,
+          errno: error.cause.errno,
+          address: error.cause.address,
+          port: error.cause.port
+        }
+      : null;
+    throw new Error(`${stage} failed: ${error.message}${cause ? ` cause=${JSON.stringify(cause)}` : ""}`);
+  }
 }
 
 function summarizeRawAzureResponse(raw) {

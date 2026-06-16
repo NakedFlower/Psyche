@@ -196,7 +196,7 @@ ssh -L 8080:localhost:8080 gpu
 Then open the avatar-lab web UI locally and use:
 
 ```txt
-GPU worker URL: http://localhost:8080
+GPU worker URL: http://127.0.0.1:8080
 Face video:     models/assets/face.mp4
 Reply audio:    models/assets/speech-clean.wav
 ```
@@ -289,5 +289,5 @@ Run on the GPU server:
 scripts/avatar-worker-host-server.sh
 ```
 
-In the web UI, keep `GPU worker URL` as `http://localhost:8080`, type a
+In the web UI, keep `GPU worker URL` as `http://127.0.0.1:8080`, type a
 question in `Ask Future Self`, and click `Ask and generate video`.
