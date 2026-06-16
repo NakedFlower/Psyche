@@ -11,8 +11,12 @@ export async function createOpenAIRealtimeAudioPump({
   outputMode = "audio",
   audioSource,
   clearAudioOutput,
+  suppressAudioOutput = false,
   onOutputAudioLevel,
+  onOutputAudioDelta,
   onOutputText,
+  onOutputTranscriptDelta,
+  onResponseDone,
   AudioFrame,
   log
 }) {
@@ -37,6 +41,7 @@ export async function createOpenAIRealtimeAudioPump({
   let inputCommitted = false;
   const inputBuffers = [];
   let outputText = "";
+  let outputTranscript = "";
 
   addSocketListener(ws, "open", () => {
     log("openai.realtime.connected", { provider, model: modelLabel, voice: voiceLabel });
@@ -134,7 +139,12 @@ export async function createOpenAIRealtimeAudioPump({
       return;
     }
 
-    if (event.type === "response.output_audio_transcript.delta") {
+    if (
+      event.type === "response.output_audio_transcript.delta" ||
+      event.type === "response.audio_transcript.delta"
+    ) {
+      outputTranscript += event.delta || "";
+      onOutputTranscriptDelta?.(event.delta || "");
       log("openai.realtime.audio_transcript_delta", { delta: event.delta });
       return;
     }
@@ -153,9 +163,18 @@ export async function createOpenAIRealtimeAudioPump({
           responseId: event.response?.id
         });
       }
+      await audioWriteChain;
+      await onResponseDone?.({
+        reason: "response.done",
+        usage,
+        responseId: event.response?.id,
+        text: outputText,
+        transcript: outputTranscript
+      });
       responseInFlight = false;
       resolveResponseDoneWaiters(event);
       outputText = "";
+      outputTranscript = "";
       return;
     }
 
@@ -175,6 +194,7 @@ export async function createOpenAIRealtimeAudioPump({
     if (generation !== outputGeneration) return;
 
     const bytes = Buffer.from(base64Audio, "base64");
+    onOutputAudioDelta?.(bytes, { generation });
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const pcm = new Int16Array(Math.floor(bytes.byteLength / 2));
     let sumSquares = 0;
@@ -186,6 +206,8 @@ export async function createOpenAIRealtimeAudioPump({
     if (pcm.length > 0) {
       onOutputAudioLevel?.(Math.sqrt(sumSquares / pcm.length) / 32768);
     }
+
+    if (suppressAudioOutput) return;
 
     const frameSamples = 240;
     for (let start = 0; start < pcm.length; start += frameSamples) {
@@ -281,6 +303,7 @@ export async function createOpenAIRealtimeAudioPump({
   function sendResponseCreate(reason) {
     outputGeneration += 1;
     outputText = "";
+    outputTranscript = "";
     responseInFlight = true;
     const response = {
       output_modalities: [outputMode],

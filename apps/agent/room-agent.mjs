@@ -44,6 +44,12 @@ const config = {
   elevenLabsVoiceId: process.env.ELEVENLABS_VOICE_ID,
   elevenLabsModelId: process.env.ELEVENLABS_MODEL_ID || "eleven_multilingual_v2",
   elevenLabsOutputFormat: process.env.ELEVENLABS_LIVEKIT_OUTPUT_FORMAT || "pcm_24000",
+  videoReplyEnabled: process.env.AVATAR_AGENT_VIDEO_REPLY_ENABLED === "true",
+  videoReplyWorkerUrl: (process.env.AVATAR_WORKER_URL || "http://127.0.0.1:8080").replace(/\/+$/, ""),
+  videoReplyEngine: process.env.AVATAR_LIPSYNC_ENGINE || "wav2lip",
+  videoReplyFacePath: process.env.AVATAR_FACE_PATH || "models/assets/face-still.jpg",
+  videoReplySuppressRealtimeAudio: process.env.AVATAR_AGENT_VIDEO_REPLY_SUPPRESS_REALTIME_AUDIO !== "false",
+  videoReplyPlayElevenLabsOnReady: process.env.AVATAR_AGENT_VIDEO_REPLY_PLAY_ELEVENLABS !== "false",
   voiceProfile,
   openaiInstructions:
     personaConfig?.realtimeInstructions ||
@@ -95,6 +101,7 @@ let listeningToUserAudio = false;
 let agentState = "idle";
 let avatarMouthLevel = 0;
 let avatarLastAudioAt = 0;
+let realtimeOutputAudioChunks = [];
 
 const token = signLiveKitJwt({
   apiKey: config.apiKey,
@@ -210,17 +217,43 @@ async function publishRealtimeAudio(activeRoom) {
     voice: config.openaiVoice,
     instructions: config.openaiInstructions,
     prompt: config.openaiGreeting,
-    outputMode: config.ttsProvider === "elevenlabs" ? "text" : "audio",
+    outputMode: config.videoReplyEnabled ? "audio" : config.ttsProvider === "elevenlabs" ? "text" : "audio",
     audioSource: source,
+    suppressAudioOutput:
+      config.videoReplyEnabled &&
+      config.ttsProvider === "elevenlabs" &&
+      config.videoReplySuppressRealtimeAudio,
     clearAudioOutput: () => {
       elevenLabsOutput?.cancel("clear-output");
       source.clearQueue();
+      realtimeOutputAudioChunks = [];
       resetAvatarMouthLevel();
     },
     onOutputAudioLevel: updateAvatarMouthLevel,
+    onOutputAudioDelta: (bytes) => {
+      if (!config.videoReplyEnabled) return;
+      realtimeOutputAudioChunks.push(Buffer.from(bytes));
+    },
     onOutputText: async (text, metadata = {}) => {
       if (!text.trim()) return;
       await elevenLabsOutput?.speak(text, metadata);
+    },
+    onResponseDone: async ({ transcript, text, responseId, usage }) => {
+      if (!config.videoReplyEnabled) return;
+      const replyText = (transcript || text || "").trim();
+      const audioChunks = realtimeOutputAudioChunks;
+      realtimeOutputAudioChunks = [];
+      if (!audioChunks.length) {
+        log("avatar.video.skipped", { reason: "no-realtime-audio", responseId });
+        return;
+      }
+      await createAndPublishAvatarVideo({
+        audioChunks,
+        replyText,
+        responseId,
+        usage,
+        source
+      });
     },
     AudioFrame,
     log
@@ -251,6 +284,105 @@ async function publishRealtimeAudio(activeRoom) {
     customVoice: config.voiceProfile.custom,
     voiceFallbackReason: config.voiceProfile.fallbackReason,
     outputQueueMs: config.outputQueueMs
+  });
+}
+
+async function createAndPublishAvatarVideo({ audioChunks, replyText, responseId, usage }) {
+  const started = Date.now();
+  const runDir = path.resolve(rootDir, "runs/realtime-avatar");
+  fs.mkdirSync(runDir, { recursive: true });
+  const baseName = `${Date.now()}-${responseId || "response"}`.replace(/[^a-zA-Z0-9_-]/g, "-");
+  const audioFile = path.join(runDir, `${baseName}.wav`);
+  writePcm16Wav(audioFile, Buffer.concat(audioChunks), config.realtimeSampleRate, 1);
+
+  await publishAgentState(room, "rendering-avatar", {
+    responseId,
+    replyText,
+    engine: config.videoReplyEngine,
+    facePath: config.videoReplyFacePath
+  });
+
+  try {
+    const form = new FormData();
+    form.append("engine", config.videoReplyEngine);
+    form.append("facePath", config.videoReplyFacePath);
+    form.append("audio", new Blob([fs.readFileSync(audioFile)], { type: "audio/wav" }), path.basename(audioFile));
+
+    const createResponse = await fetch(`${config.videoReplyWorkerUrl}/v1/lipsync/jobs`, {
+      method: "POST",
+      body: form
+    });
+    const created = await readFetchResponse(createResponse);
+    if (!createResponse.ok) {
+      throw new Error(`worker job failed (${createResponse.status}): ${JSON.stringify(created)}`);
+    }
+
+    const completed = await pollAvatarWorkerJob(created.jobId);
+    const videoUrl = `${config.videoReplyWorkerUrl}${completed.videoUrl}?t=${Date.now()}`;
+
+    await publishAvatarVideoReady({
+      responseId,
+      replyText,
+      videoUrl,
+      audioFile: path.relative(rootDir, audioFile),
+      workerJob: completed,
+      muted: config.ttsProvider === "elevenlabs" && config.videoReplyPlayElevenLabsOnReady,
+      usage,
+      latencyMs: Date.now() - started
+    });
+
+    if (config.ttsProvider === "elevenlabs" && config.videoReplyPlayElevenLabsOnReady && replyText) {
+      await elevenLabsOutput?.speak(replyText, {
+        reason: "avatar.video.ready",
+        responseId
+      });
+    }
+  } catch (error) {
+    log("avatar.video.error", {
+      message: error.message,
+      responseId,
+      engine: config.videoReplyEngine
+    });
+    await publishAgentState(room, "avatar-error", {
+      responseId,
+      message: error.message
+    });
+  }
+}
+
+async function pollAvatarWorkerJob(jobId) {
+  const started = Date.now();
+  while (Date.now() - started < 10 * 60 * 1000) {
+    const response = await fetch(`${config.videoReplyWorkerUrl}/v1/lipsync/jobs/${encodeURIComponent(jobId)}`);
+    const job = await readFetchResponse(response);
+    if (!response.ok) {
+      throw new Error(job.error || JSON.stringify(job));
+    }
+    if (job.status === "completed") return job;
+    if (job.status === "failed") {
+      throw new Error(job.stderrTail || job.error || JSON.stringify(job));
+    }
+    await publishAgentState(room, "rendering-avatar", {
+      jobId,
+      status: job.status,
+      elapsedMs: Date.now() - started
+    });
+    await sleep(1200);
+  }
+  throw new Error(`Timed out waiting for avatar job ${jobId}`);
+}
+
+async function publishAvatarVideoReady(payload) {
+  const event = {
+    type: "avatar.video.ready",
+    sessionId: config.roomName,
+    at: Date.now(),
+    ...payload
+  };
+  log("avatar.video.ready", event);
+  await room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify(event)), {
+    reliable: true,
+    topic: "psyche.avatar"
   });
 }
 
@@ -816,6 +948,35 @@ function getCliValue(name) {
 
 function base64url(input) {
   return Buffer.from(input).toString("base64url");
+}
+
+function writePcm16Wav(filePath, pcmBytes, sampleRate, channels) {
+  const dataSize = pcmBytes.byteLength;
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * channels * 2, 28);
+  header.writeUInt16LE(channels * 2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(dataSize, 40);
+  fs.writeFileSync(filePath, Buffer.concat([header, pcmBytes]));
+}
+
+async function readFetchResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) return response.json();
+  return response.text();
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function log(event, payload = {}) {

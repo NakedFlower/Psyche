@@ -198,6 +198,38 @@ AVATAR_AGENT_MODE=realtime AVATAR_AGENT_GREETING_ENABLED=false AVATAR_AGENT_LIST
 The agent logs each `response.done` usage payload plus an `estimatedCostUsd`
 object so short R&D turns can be watched against the remaining OpenAI credit.
 
+### Realtime Audio to Avatar Video
+
+Experimental mode for the GPU avatar path:
+
+```txt
+Browser mic -> LiveKit -> Node agent -> GPT Realtime audio + transcript
+  -> Realtime audio WAV -> GPU Wav2Lip
+  -> transcript -> ElevenLabs
+  -> when video is ready, browser plays muted video while ElevenLabs audio starts
+```
+
+Run the GPU worker first and keep the SSH tunnel open:
+
+```sh
+scripts/avatar-worker-host-server.sh
+ssh -L 8080:127.0.0.1:8080 gpu
+```
+
+Then run the room agent:
+
+```sh
+AVATAR_AGENT_MODE=realtime \
+AVATAR_AGENT_TTS_PROVIDER=elevenlabs \
+AVATAR_AGENT_VIDEO_REPLY_ENABLED=true \
+AVATAR_LIPSYNC_ENGINE=wav2lip \
+AVATAR_FACE_PATH=models/assets/face-still.jpg \
+node apps/agent/room-agent.mjs
+```
+
+This mode intentionally uses GPT Realtime audio for Wav2Lip and ElevenLabs audio
+for playback. It is an R&D experiment, so short one-sentence responses work best.
+
 ### Mock Avatar Video
 
 Before A100/MuseTalk is available, the Node agent publishes a placeholder

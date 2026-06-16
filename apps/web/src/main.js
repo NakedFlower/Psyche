@@ -489,6 +489,13 @@ function bindRoomEvents(room) {
     })
     .on(RoomEvent.DataReceived, (payload, participant, kind, topic) => {
       const decoded = decodePayload(payload);
+      if (decoded?.type === "avatar.video.ready") {
+        renderGeneratedAvatar(decoded.videoUrl, {
+          muted: Boolean(decoded.muted),
+          label: decoded.muted ? "wav2lip / realtime audio to ElevenLabs" : "wav2lip / realtime audio"
+        });
+        elements.askAvatarStatus.textContent = `Avatar video ready in ${(decoded.latencyMs / 1000).toFixed(1)}s`;
+      }
       appendEvent(participant?.identity || "data", {
         topic,
         packetKind: kind,
@@ -602,7 +609,7 @@ function renderTrackCounts() {
   elements.remoteTrackCount.textContent = remoteTracks > 0 ? `${remoteTracks} tracks` : "waiting";
 }
 
-function renderGeneratedAvatar(videoUrl) {
+function renderGeneratedAvatar(videoUrl, options = {}) {
   elements.remoteMedia.classList.remove("empty");
   elements.remoteMedia.textContent = "";
 
@@ -613,11 +620,12 @@ function renderGeneratedAvatar(videoUrl) {
   video.src = videoUrl;
   video.autoplay = true;
   video.controls = true;
+  video.muted = Boolean(options.muted);
   video.playsInline = true;
 
   const label = document.createElement("div");
   label.className = "media-label";
-  label.textContent = `${elements.avatarEngine.value} / generated reply`;
+  label.textContent = options.label || `${elements.avatarEngine.value} / generated reply`;
 
   wrapper.append(video, label);
   elements.remoteMedia.append(wrapper);
