@@ -57,6 +57,7 @@ const elements = {
 };
 
 elements.identity.value = `browser-${Math.random().toString(16).slice(2, 8)}`;
+renderDefaultAvatar();
 
 elements.form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -81,6 +82,9 @@ elements.avatarDemoForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   await generateAvatarDemo();
 });
+
+elements.avatarWorkerUrl.addEventListener("change", renderDefaultAvatar);
+elements.avatarFacePath.addEventListener("change", renderDefaultAvatar);
 
 elements.askAvatarForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -167,7 +171,7 @@ async function leaveRoom() {
   }
 
   clearMedia(elements.localMedia, "Join to start camera and mic");
-  clearMedia(elements.remoteMedia, "AI agent is not connected");
+  renderDefaultAvatar();
   clearHiddenAudio();
   state.remoteElements.clear();
   state.localElements = [];
@@ -494,7 +498,9 @@ function bindRoomEvents(room) {
           muted: Boolean(decoded.muted),
           label: decoded.muted ? "wav2lip / realtime audio to ElevenLabs" : "wav2lip / realtime audio"
         });
-        elements.askAvatarStatus.textContent = `Avatar video ready in ${(decoded.latencyMs / 1000).toFixed(1)}s`;
+        elements.askAvatarStatus.textContent =
+          `Avatar video ready in ${(decoded.latencyMs / 1000).toFixed(1)}s` +
+          (decoded.clippedAudioSeconds ? ` (${decoded.clippedAudioSeconds}s audio)` : "");
       }
       appendEvent(participant?.identity || "data", {
         topic,
@@ -628,6 +634,35 @@ function renderGeneratedAvatar(videoUrl, options = {}) {
   label.textContent = options.label || `${elements.avatarEngine.value} / generated reply`;
 
   wrapper.append(video, label);
+  elements.remoteMedia.append(wrapper);
+}
+
+function renderDefaultAvatar() {
+  const workerUrl = normalizeBaseUrl(elements.avatarWorkerUrl?.value || "http://127.0.0.1:8080");
+  const facePath = String(elements.avatarFacePath?.value || "models/assets/face-still.jpg").replace(/^\/+/, "");
+  const imageUrl = `${workerUrl}/${facePath}?t=${Date.now()}`;
+
+  elements.remoteMedia.classList.remove("empty");
+  elements.remoteMedia.textContent = "";
+
+  const wrapper = document.createElement("article");
+  wrapper.className = "media-card video idle-avatar";
+
+  const image = document.createElement("img");
+  image.src = imageUrl;
+  image.alt = "AI Future Self";
+  image.loading = "eager";
+
+  const label = document.createElement("div");
+  label.className = "media-label";
+  label.textContent = "AI Future Self / waiting";
+
+  image.addEventListener("error", () => {
+    elements.remoteMedia.classList.add("empty");
+    elements.remoteMedia.textContent = "AI Future Self waiting";
+  });
+
+  wrapper.append(image, label);
   elements.remoteMedia.append(wrapper);
 }
 

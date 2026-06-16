@@ -50,6 +50,7 @@ const config = {
   videoReplyFacePath: process.env.AVATAR_FACE_PATH || "models/assets/face-still.jpg",
   videoReplySuppressRealtimeAudio: process.env.AVATAR_AGENT_VIDEO_REPLY_SUPPRESS_REALTIME_AUDIO !== "false",
   videoReplyPlayElevenLabsOnReady: process.env.AVATAR_AGENT_VIDEO_REPLY_PLAY_ELEVENLABS !== "false",
+  videoReplyMaxAudioSeconds: Number(process.env.AVATAR_AGENT_VIDEO_REPLY_MAX_AUDIO_SECONDS || 4),
   voiceProfile,
   openaiInstructions:
     personaConfig?.realtimeInstructions ||
@@ -68,6 +69,17 @@ const config = {
   mockAvatarGain: Number(process.env.AVATAR_AGENT_MOCK_AVATAR_GAIN || 18),
   mockAvatarDecay: Number(process.env.AVATAR_AGENT_MOCK_AVATAR_DECAY || 0.72)
 };
+
+if (config.videoReplyEnabled) {
+  config.openaiInstructions = [
+    config.openaiInstructions,
+    "",
+    "Avatar video mode is enabled.",
+    "Answer in Korean with exactly one short sentence.",
+    "The answer must be speakable within 2 to 4 seconds.",
+    "Do not explain, list, greet at length, or add follow-up questions."
+  ].join("\n");
+}
 
 try {
   validateConfig(config);
@@ -293,13 +305,19 @@ async function createAndPublishAvatarVideo({ audioChunks, replyText, responseId,
   fs.mkdirSync(runDir, { recursive: true });
   const baseName = `${Date.now()}-${responseId || "response"}`.replace(/[^a-zA-Z0-9_-]/g, "-");
   const audioFile = path.join(runDir, `${baseName}.wav`);
-  writePcm16Wav(audioFile, Buffer.concat(audioChunks), config.realtimeSampleRate, 1);
+  const rawAudio = Buffer.concat(audioChunks);
+  const maxAudioBytes = Math.max(1, Math.floor(config.videoReplyMaxAudioSeconds * config.realtimeSampleRate * 2));
+  const clippedAudio = rawAudio.subarray(0, Math.min(rawAudio.byteLength, maxAudioBytes));
+  writePcm16Wav(audioFile, clippedAudio, config.realtimeSampleRate, 1);
 
   await publishAgentState(room, "rendering-avatar", {
     responseId,
     replyText,
     engine: config.videoReplyEngine,
-    facePath: config.videoReplyFacePath
+    facePath: config.videoReplyFacePath,
+    capturedAudioSeconds: Number((rawAudio.byteLength / 2 / config.realtimeSampleRate).toFixed(2)),
+    clippedAudioSeconds: Number((clippedAudio.byteLength / 2 / config.realtimeSampleRate).toFixed(2)),
+    maxAudioSeconds: config.videoReplyMaxAudioSeconds
   });
 
   try {
@@ -325,6 +343,9 @@ async function createAndPublishAvatarVideo({ audioChunks, replyText, responseId,
       replyText,
       videoUrl,
       audioFile: path.relative(rootDir, audioFile),
+      capturedAudioSeconds: Number((rawAudio.byteLength / 2 / config.realtimeSampleRate).toFixed(2)),
+      clippedAudioSeconds: Number((clippedAudio.byteLength / 2 / config.realtimeSampleRate).toFixed(2)),
+      maxAudioSeconds: config.videoReplyMaxAudioSeconds,
       workerJob: completed,
       muted: config.ttsProvider === "elevenlabs" && config.videoReplyPlayElevenLabsOnReady,
       usage,

@@ -224,6 +224,7 @@ AVATAR_AGENT_TTS_PROVIDER=elevenlabs \
 AVATAR_AGENT_VIDEO_REPLY_ENABLED=true \
 AVATAR_LIPSYNC_ENGINE=wav2lip \
 AVATAR_FACE_PATH=models/assets/face-still.jpg \
+AVATAR_AGENT_VIDEO_REPLY_MAX_AUDIO_SECONDS=4 \
 node apps/agent/room-agent.mjs
 ```
 
