@@ -6,6 +6,7 @@ const state = {
   localElements: [],
   hiddenAudioElements: [],
   defaultAvatarUrl: localStorage.getItem("psyche.futureAvatarUrl") || "",
+  idleLoopUrl: localStorage.getItem("psyche.idleLoopUrl") || "",
   speakingLoopUrl: localStorage.getItem("psyche.speakingLoopUrl") || "",
   uploadedAvatarPreviewUrl: "",
   avatarSpeaking: false,
@@ -69,6 +70,7 @@ const elements = {
   prepStatus: document.getElementById("prepStatus"),
   prepPersonaStatus: document.getElementById("prepPersonaStatus"),
   prepImageStatus: document.getElementById("prepImageStatus"),
+  prepIdleStatus: document.getElementById("prepIdleStatus"),
   prepLoopStatus: document.getElementById("prepLoopStatus"),
   prepJoinStatus: document.getElementById("prepJoinStatus")
 };
@@ -191,15 +193,20 @@ async function prepareAndJoinRoom() {
     await generateFutureImage({ silent: true });
     markPrepStep(currentStep, "done", "2. Future face ready");
 
+    currentStep = elements.prepIdleStatus;
+    markPrepStep(currentStep, "working", "3. Building idle loop...");
+    await generateIdleLoop({ silent: true });
+    markPrepStep(currentStep, "done", "3. Idle loop ready");
+
     currentStep = elements.prepLoopStatus;
-    markPrepStep(currentStep, "working", "3. Building MuseTalk speaking loop...");
+    markPrepStep(currentStep, "working", "4. Building MuseTalk speaking loop...");
     await generateSpeakingLoop({ silent: true, engineOverride: "musetalk" });
-    markPrepStep(currentStep, "done", "3. MuseTalk loop ready");
+    markPrepStep(currentStep, "done", "4. MuseTalk loop ready");
 
     currentStep = elements.prepJoinStatus;
-    markPrepStep(currentStep, "working", "4. Joining call...");
+    markPrepStep(currentStep, "working", "5. Joining call...");
     await joinRoom();
-    markPrepStep(currentStep, "done", "4. Call connected");
+    markPrepStep(currentStep, "done", "5. Call connected");
     setPrepStatus("Ready. Your future self is in the room.");
   } catch (error) {
     markPrepStep(currentStep, "error", currentStep?.textContent?.replace("...", " failed") || "Step failed");
@@ -378,6 +385,7 @@ async function generateFutureImage(options = {}) {
 
     state.defaultAvatarUrl = `${result.imageUrl}?t=${Date.now()}`;
     localStorage.setItem("psyche.futureAvatarUrl", state.defaultAvatarUrl);
+    clearIdleLoop();
     clearSpeakingLoop();
     renderDefaultAvatar();
     elements.futureImageStatus.textContent = "Future face ready";
@@ -415,6 +423,7 @@ function previewUploadedFutureImage() {
 
   state.uploadedAvatarPreviewUrl = URL.createObjectURL(photo);
   state.defaultAvatarUrl = state.uploadedAvatarPreviewUrl;
+  clearIdleLoop();
   clearSpeakingLoop();
   elements.futureImageStatus.textContent = "Photo preview ready";
   renderDefaultAvatar();
@@ -504,6 +513,52 @@ async function generateSpeakingLoop(options = {}) {
   }
 }
 
+async function generateIdleLoop(options = {}) {
+  const workerUrl = normalizeBaseUrl(elements.avatarWorkerUrl.value);
+  elements.avatarDemoStatus.textContent = "Creating idle loop...";
+  if (!options.silent) appendEvent("avatar", `Generating idle loop via ${workerUrl}`);
+
+  try {
+    const response = await createAvatarJob(workerUrl, {
+      engineOverride: "idle-loop",
+      useAudio: false
+    });
+    const job = await response.json();
+    if (!response.ok) {
+      throw new Error(job.error || JSON.stringify(job));
+    }
+
+    const result = await pollAvatarJob(workerUrl, job.jobId, {
+      onStatus: (statusText) => {
+        elements.avatarDemoStatus.textContent = `Idle ${statusText}`;
+      }
+    });
+
+    state.idleLoopUrl = `${workerUrl}${result.videoUrl}?t=${Date.now()}`;
+    localStorage.setItem("psyche.idleLoopUrl", state.idleLoopUrl);
+    renderDefaultAvatar();
+    elements.avatarDemoStatus.textContent = "Idle loop ready";
+    if (!options.silent) {
+      setSetupOutput({
+        type: "avatar.idle.generated",
+        jobId: result.jobId,
+        idleLoopUrl: state.idleLoopUrl,
+        reportUrl: `${workerUrl}${result.reportUrl}`,
+        metrics: result.report?.metrics
+      });
+      appendEvent("avatar", `Idle loop ready ${result.videoUrl}`);
+    }
+    return result;
+  } catch (error) {
+    elements.avatarDemoStatus.textContent = "Idle loop failed";
+    if (!options.silent) {
+      setSetupOutput({ type: "avatar.idle.error", message: error.message });
+      appendEvent("error", error.message);
+    }
+    throw error;
+  }
+}
+
 async function askFutureSelfAvatar() {
   const workerUrl = normalizeBaseUrl(elements.avatarWorkerUrl.value);
   const question = elements.avatarQuestion.value.trim();
@@ -574,7 +629,7 @@ async function askFutureSelfAvatar() {
 async function createAvatarJob(workerUrl, options = {}) {
   const [audioFile] = elements.avatarAudioFile.files || [];
   const uploadedFace = await resolveSelectedFaceUpload();
-  if (audioFile || uploadedFace) {
+  if (audioFile || uploadedFace || options.useAudio === false) {
     const form = new FormData();
     form.append("engine", options.engineOverride || elements.avatarEngine.value);
     if (uploadedFace) {
@@ -582,7 +637,9 @@ async function createAvatarJob(workerUrl, options = {}) {
     } else {
       form.append("facePath", elements.avatarFacePath.value.trim());
     }
-    if (audioFile) {
+    if (options.useAudio === false) {
+      // idle-loop only needs the current/generated face image
+    } else if (audioFile) {
       form.append("audio", audioFile);
     } else {
       form.append("audioPath", elements.avatarAudioPath.value.trim());
@@ -602,7 +659,7 @@ async function createAvatarJob(workerUrl, options = {}) {
     body: JSON.stringify({
       engine: options.engineOverride || elements.avatarEngine.value,
       facePath: elements.avatarFacePath.value.trim(),
-      audioPath: elements.avatarAudioPath.value.trim(),
+      ...(options.useAudio === false ? {} : { audioPath: elements.avatarAudioPath.value.trim() }),
       useFloat16: true
     })
   });
@@ -905,9 +962,11 @@ function renderDefaultAvatar() {
   wrapper.className = "media-card video idle-avatar";
   wrapper.classList.toggle("speaking", state.avatarSpeaking);
   const showSpeakingLoop = state.avatarSpeaking && state.speakingLoopUrl;
-  const media = showSpeakingLoop ? document.createElement("video") : document.createElement("img");
-  if (showSpeakingLoop) {
-    media.src = state.speakingLoopUrl;
+  const showIdleLoop = !state.avatarSpeaking && state.idleLoopUrl;
+  const showLoopVideo = showSpeakingLoop || showIdleLoop;
+  const media = showLoopVideo ? document.createElement("video") : document.createElement("img");
+  if (showLoopVideo) {
+    media.src = showSpeakingLoop ? state.speakingLoopUrl : state.idleLoopUrl;
     media.autoplay = true;
     media.loop = true;
     media.muted = true;
@@ -920,7 +979,11 @@ function renderDefaultAvatar() {
 
   const label = document.createElement("div");
   label.className = "media-label";
-  label.textContent = showSpeakingLoop ? "AI Future Self / speaking loop" : "AI Future Self / waiting";
+  label.textContent = showSpeakingLoop
+    ? "AI Future Self / speaking loop"
+    : showIdleLoop
+      ? "AI Future Self / idle loop"
+      : "AI Future Self / waiting";
 
   const mouth = document.createElement("div");
   mouth.className = "avatar-mouth";
@@ -930,7 +993,7 @@ function renderDefaultAvatar() {
     elements.remoteMedia.textContent = "AI Future Self waiting";
   });
 
-  if (showSpeakingLoop) {
+  if (showLoopVideo) {
     wrapper.append(media, label);
   } else {
     wrapper.append(media, mouth, label);
@@ -967,6 +1030,11 @@ function clearSpeakingLoop() {
   localStorage.removeItem("psyche.speakingLoopUrl");
 }
 
+function clearIdleLoop() {
+  state.idleLoopUrl = "";
+  localStorage.removeItem("psyche.idleLoopUrl");
+}
+
 function setPrepStatus(message) {
   if (elements.prepStatus) {
     elements.prepStatus.textContent = message;
@@ -982,8 +1050,9 @@ function markPrepStep(element, status, message) {
 function resetPrepChecklist() {
   markPrepStep(elements.prepPersonaStatus, "waiting", "1. Persona waiting");
   markPrepStep(elements.prepImageStatus, "waiting", "2. Future face waiting");
-  markPrepStep(elements.prepLoopStatus, "waiting", "3. MuseTalk loop waiting");
-  markPrepStep(elements.prepJoinStatus, "waiting", "4. Room join waiting");
+  markPrepStep(elements.prepIdleStatus, "waiting", "3. Idle loop waiting");
+  markPrepStep(elements.prepLoopStatus, "waiting", "4. MuseTalk loop waiting");
+  markPrepStep(elements.prepJoinStatus, "waiting", "5. Room join waiting");
 }
 
 function normalizeBaseUrl(value) {

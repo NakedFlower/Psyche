@@ -47,7 +47,7 @@ class AvatarWorkerHandler(BaseHTTPRequestHandler):
                 {
                     "status": "ok",
                     "service": "psyche-avatar-worker",
-                    "engines": ["musetalk", "wav2lip", "mouth-puppet"],
+                    "engines": ["musetalk", "wav2lip", "mouth-puppet", "idle-loop"],
                     "root": str(ROOT),
                     "jobs": len(JOBS),
                 }
@@ -206,11 +206,11 @@ class AvatarWorkerHandler(BaseHTTPRequestHandler):
 
 def create_lipsync_job(body: dict) -> dict:
     engine = body.get("engine", "musetalk")
-    if engine not in {"musetalk", "wav2lip", "mouth-puppet"}:
-        raise ValueError("Only musetalk, wav2lip, and mouth-puppet are wired for the worker endpoint.")
+    if engine not in {"musetalk", "wav2lip", "mouth-puppet", "idle-loop"}:
+        raise ValueError("Only musetalk, wav2lip, mouth-puppet, and idle-loop are wired for the worker endpoint.")
 
     face_path = sanitize_relative_path(body.get("facePath") or DEFAULT_FACE)
-    audio_path = sanitize_relative_path(body.get("audioPath") or DEFAULT_AUDIO)
+    audio_path = None if engine == "idle-loop" else sanitize_relative_path(body.get("audioPath") or DEFAULT_AUDIO)
     avatar_id = safe_slug(str(body.get("avatarId") or "")) or None
     batch_size = int(body.get("batchSize") or os.environ.get("MUSETALK_BATCH_SIZE", "8"))
     bbox_shift = int(body.get("bboxShift") or os.environ.get("MUSETALK_BBOX_SHIFT", "0"))
@@ -316,6 +316,15 @@ def run_lipsync_job(job_id: str) -> None:
             job["input"]["facePath"],
             "--audio",
             job["input"]["audioPath"],
+            "--out-dir",
+            str(out_dir),
+        ]
+    elif job["engine"] == "idle-loop":
+        command = [
+            sys.executable,
+            str(ROOT / "apps" / "avatar-worker" / "idle_loop.py"),
+            "--face",
+            job["input"]["facePath"],
             "--out-dir",
             str(out_dir),
         ]
