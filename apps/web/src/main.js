@@ -65,7 +65,12 @@ const elements = {
   remoteTrackCount: document.getElementById("remoteTrackCount"),
   localMedia: document.getElementById("localMedia"),
   remoteMedia: document.getElementById("remoteMedia"),
-  eventLog: document.getElementById("eventLog")
+  eventLog: document.getElementById("eventLog"),
+  prepStatus: document.getElementById("prepStatus"),
+  prepPersonaStatus: document.getElementById("prepPersonaStatus"),
+  prepImageStatus: document.getElementById("prepImageStatus"),
+  prepLoopStatus: document.getElementById("prepLoopStatus"),
+  prepJoinStatus: document.getElementById("prepJoinStatus")
 };
 
 elements.identity.value = `browser-${Math.random().toString(16).slice(2, 8)}`;
@@ -73,7 +78,7 @@ renderDefaultAvatar();
 
 elements.form.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await joinRoom();
+  await prepareAndJoinRoom();
 });
 
 elements.leaveButton.addEventListener("click", async () => {
@@ -82,7 +87,6 @@ elements.leaveButton.addEventListener("click", async () => {
 
 elements.personaForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await generatePersona();
 });
 
 elements.voiceCloneForm.addEventListener("submit", async (event) => {
@@ -166,6 +170,48 @@ async function joinRoom() {
   }
 }
 
+async function prepareAndJoinRoom() {
+  if (state.room) {
+    return;
+  }
+
+  setBusy(true, "Preparing...");
+  resetPrepChecklist();
+  setPrepStatus("Preparing your future self...");
+  let currentStep = elements.prepPersonaStatus;
+
+  try {
+    currentStep = elements.prepPersonaStatus;
+    markPrepStep(currentStep, "working", "1. Generating persona...");
+    await generatePersona({ silent: true });
+    markPrepStep(currentStep, "done", "1. Persona ready");
+
+    currentStep = elements.prepImageStatus;
+    markPrepStep(currentStep, "working", "2. Creating future face...");
+    await generateFutureImage({ silent: true });
+    markPrepStep(currentStep, "done", "2. Future face ready");
+
+    currentStep = elements.prepLoopStatus;
+    markPrepStep(currentStep, "working", "3. Building MuseTalk speaking loop...");
+    await generateSpeakingLoop({ silent: true, engineOverride: "musetalk" });
+    markPrepStep(currentStep, "done", "3. MuseTalk loop ready");
+
+    currentStep = elements.prepJoinStatus;
+    markPrepStep(currentStep, "working", "4. Joining call...");
+    await joinRoom();
+    markPrepStep(currentStep, "done", "4. Call connected");
+    setPrepStatus("Ready. Your future self is in the room.");
+  } catch (error) {
+    markPrepStep(currentStep, "error", currentStep?.textContent?.replace("...", " failed") || "Step failed");
+    setPrepStatus(`Preparation failed: ${error.message}`);
+    appendEvent("error", error.message);
+  } finally {
+    if (!state.room) {
+      setBusy(false);
+    }
+  }
+}
+
 async function enableLocalMedia(room) {
   try {
     await room.localParticipant.setMicrophoneEnabled(true, {
@@ -203,10 +249,11 @@ async function leaveRoom() {
   updateConnectionState("disconnected");
 }
 
-async function generatePersona() {
-  elements.generatePersonaButton.disabled = true;
-  elements.generatePersonaButton.textContent = "Generating...";
-  setSetupOutput("Generating persona with Azure...");
+async function generatePersona(options = {}) {
+  setButtonState(elements.generatePersonaButton, true, "Generating...");
+  if (!options.silent) {
+    setSetupOutput("Generating persona with Azure...");
+  }
 
   try {
     const payload = buildPersonaPayload();
@@ -234,13 +281,16 @@ async function generatePersona() {
       firstGreeting: result.firstGreeting,
       runWithPersona: `AVATAR_PERSONA_FILE=${result.personaFile} /opt/homebrew/bin/node apps/agent/room-agent.mjs`
     });
-    appendEvent("persona", `Generated ${result.personaFile}`);
+    if (!options.silent) appendEvent("persona", `Generated ${result.personaFile}`);
+    return result;
   } catch (error) {
-    setSetupOutput({ type: "persona.error", message: error.message });
-    appendEvent("error", error.message);
+    if (!options.silent) {
+      setSetupOutput({ type: "persona.error", message: error.message });
+      appendEvent("error", error.message);
+    }
+    throw error;
   } finally {
-    elements.generatePersonaButton.disabled = false;
-    elements.generatePersonaButton.textContent = "Generate persona";
+    setButtonState(elements.generatePersonaButton, false, "Generate persona");
   }
 }
 
@@ -301,15 +351,14 @@ async function cloneVoiceFromUpload() {
   }
 }
 
-async function generateFutureImage() {
+async function generateFutureImage(options = {}) {
   const [photo] = elements.futureImagePhoto.files || [];
   if (!photo) {
     elements.futureImageStatus.textContent = "Choose a current photo first";
-    return;
+    throw new Error("Current photo is required");
   }
 
-  elements.generateFutureImageButton.disabled = true;
-  elements.generateFutureImageButton.textContent = "Generating...";
+  setButtonState(elements.generateFutureImageButton, true, "Generating...");
   elements.futureImageStatus.textContent = "Creating future face...";
 
   try {
@@ -329,24 +378,30 @@ async function generateFutureImage() {
 
     state.defaultAvatarUrl = `${result.imageUrl}?t=${Date.now()}`;
     localStorage.setItem("psyche.futureAvatarUrl", state.defaultAvatarUrl);
+    clearSpeakingLoop();
     renderDefaultAvatar();
     elements.futureImageStatus.textContent = "Future face ready";
-    setSetupOutput({
-      type: "future-image.generated",
-      imageUrl: result.imageUrl,
-      outputFile: result.outputFile,
-      model: result.model,
-      targetYears: result.targetYears,
-      style: result.style
-    });
-    appendEvent("avatar", `Future face generated ${result.outputFile}`);
+    if (!options.silent) {
+      setSetupOutput({
+        type: "future-image.generated",
+        imageUrl: result.imageUrl,
+        outputFile: result.outputFile,
+        model: result.model,
+        targetYears: result.targetYears,
+        style: result.style
+      });
+      appendEvent("avatar", `Future face generated ${result.outputFile}`);
+    }
+    return result;
   } catch (error) {
     elements.futureImageStatus.textContent = "Future face generation failed";
-    setSetupOutput({ type: "future-image.error", message: error.message });
-    appendEvent("error", error.message);
+    if (!options.silent) {
+      setSetupOutput({ type: "future-image.error", message: error.message });
+      appendEvent("error", error.message);
+    }
+    throw error;
   } finally {
-    elements.generateFutureImageButton.disabled = false;
-    elements.generateFutureImageButton.textContent = "Generate future face";
+    setButtonState(elements.generateFutureImageButton, false, "Generate future face");
   }
 }
 
@@ -360,6 +415,7 @@ function previewUploadedFutureImage() {
 
   state.uploadedAvatarPreviewUrl = URL.createObjectURL(photo);
   state.defaultAvatarUrl = state.uploadedAvatarPreviewUrl;
+  clearSpeakingLoop();
   elements.futureImageStatus.textContent = "Photo preview ready";
   renderDefaultAvatar();
 }
@@ -402,15 +458,14 @@ async function generateAvatarDemo() {
   }
 }
 
-async function generateSpeakingLoop() {
+async function generateSpeakingLoop(options = {}) {
   const workerUrl = normalizeBaseUrl(elements.avatarWorkerUrl.value);
-  elements.generateLoopButton.disabled = true;
-  elements.generateLoopButton.textContent = "Generating...";
+  setButtonState(elements.generateLoopButton, true, "Generating...");
   elements.avatarDemoStatus.textContent = "Creating speaking loop...";
-  appendEvent("avatar", `Generating speaking loop via ${workerUrl}`);
+  if (!options.silent) appendEvent("avatar", `Generating speaking loop via ${workerUrl}`);
 
   try {
-    const response = await createAvatarJob(workerUrl);
+    const response = await createAvatarJob(workerUrl, { engineOverride: options.engineOverride || "musetalk" });
     const job = await response.json();
     if (!response.ok) {
       throw new Error(job.error || JSON.stringify(job));
@@ -426,21 +481,26 @@ async function generateSpeakingLoop() {
     localStorage.setItem("psyche.speakingLoopUrl", state.speakingLoopUrl);
     renderDefaultAvatar();
     elements.avatarDemoStatus.textContent = "Speaking loop ready";
-    setSetupOutput({
-      type: "avatar.loop.generated",
-      jobId: result.jobId,
-      loopVideoUrl: state.speakingLoopUrl,
-      reportUrl: `${workerUrl}${result.reportUrl}`,
-      metrics: result.report?.metrics
-    });
-    appendEvent("avatar", `Speaking loop ready ${result.videoUrl}`);
+    if (!options.silent) {
+      setSetupOutput({
+        type: "avatar.loop.generated",
+        jobId: result.jobId,
+        loopVideoUrl: state.speakingLoopUrl,
+        reportUrl: `${workerUrl}${result.reportUrl}`,
+        metrics: result.report?.metrics
+      });
+      appendEvent("avatar", `Speaking loop ready ${result.videoUrl}`);
+    }
+    return result;
   } catch (error) {
     elements.avatarDemoStatus.textContent = "Speaking loop failed";
-    setSetupOutput({ type: "avatar.loop.error", message: error.message });
-    appendEvent("error", error.message);
+    if (!options.silent) {
+      setSetupOutput({ type: "avatar.loop.error", message: error.message });
+      appendEvent("error", error.message);
+    }
+    throw error;
   } finally {
-    elements.generateLoopButton.disabled = false;
-    elements.generateLoopButton.textContent = "Generate speaking loop";
+    setButtonState(elements.generateLoopButton, false, "Generate speaking loop");
   }
 }
 
@@ -511,12 +571,12 @@ async function askFutureSelfAvatar() {
   }
 }
 
-async function createAvatarJob(workerUrl) {
+async function createAvatarJob(workerUrl, options = {}) {
   const [audioFile] = elements.avatarAudioFile.files || [];
   const uploadedFace = await resolveSelectedFaceUpload();
   if (audioFile || uploadedFace) {
     const form = new FormData();
-    form.append("engine", elements.avatarEngine.value);
+    form.append("engine", options.engineOverride || elements.avatarEngine.value);
     if (uploadedFace) {
       form.append("face", uploadedFace.blob, uploadedFace.filename);
     } else {
@@ -540,7 +600,7 @@ async function createAvatarJob(workerUrl) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      engine: elements.avatarEngine.value,
+      engine: options.engineOverride || elements.avatarEngine.value,
       facePath: elements.avatarFacePath.value.trim(),
       audioPath: elements.avatarAudioPath.value.trim(),
       useFloat16: true
@@ -697,6 +757,21 @@ function attachRemoteTrack(track, publication, participant) {
     audio.controls = false;
     audio.dataset.hiddenAudio = publication.trackSid;
     audio.style.display = "none";
+    audio.addEventListener("playing", () => {
+      appendEvent("audio", `${participant.identity} audio playing`);
+      setAvatarSpeaking(true);
+    });
+    audio.addEventListener("pause", () => {
+      appendEvent("audio", `${participant.identity} audio paused`);
+      setAvatarSpeaking(false);
+    });
+    audio.addEventListener("ended", () => {
+      appendEvent("audio", `${participant.identity} audio ended`);
+      setAvatarSpeaking(false);
+    });
+    audio.addEventListener("emptied", () => {
+      setAvatarSpeaking(false);
+    });
     document.body.append(audio);
     state.hiddenAudioElements.push(audio);
     state.remoteElements.set(publication.trackSid, audio);
@@ -739,6 +814,7 @@ function detachRemoteTrack(trackSid) {
     state.hiddenAudioElements = state.hiddenAudioElements.filter((element) => element !== wrapper);
   }
   state.remoteElements.delete(trackSid);
+  setAvatarSpeaking(false);
 
   if (state.remoteElements.size === 0) {
     clearMedia(elements.remoteMedia, "AI agent is not connected");
@@ -880,6 +956,36 @@ function setAvatarSpeaking(isSpeaking, autoStopMs = 0) {
   }
 }
 
+function setButtonState(button, disabled, text) {
+  if (!button) return;
+  button.disabled = disabled;
+  button.textContent = text;
+}
+
+function clearSpeakingLoop() {
+  state.speakingLoopUrl = "";
+  localStorage.removeItem("psyche.speakingLoopUrl");
+}
+
+function setPrepStatus(message) {
+  if (elements.prepStatus) {
+    elements.prepStatus.textContent = message;
+  }
+}
+
+function markPrepStep(element, status, message) {
+  if (!element) return;
+  element.dataset.status = status;
+  element.textContent = message;
+}
+
+function resetPrepChecklist() {
+  markPrepStep(elements.prepPersonaStatus, "waiting", "1. Persona waiting");
+  markPrepStep(elements.prepImageStatus, "waiting", "2. Future face waiting");
+  markPrepStep(elements.prepLoopStatus, "waiting", "3. MuseTalk loop waiting");
+  markPrepStep(elements.prepJoinStatus, "waiting", "4. Room join waiting");
+}
+
 function normalizeBaseUrl(value) {
   return String(value || "http://localhost:8080").trim().replace(/\/+$/, "");
 }
@@ -941,6 +1047,7 @@ function clearHiddenAudio() {
     element.remove();
   }
   state.hiddenAudioElements = [];
+  setAvatarSpeaking(false);
 }
 
 function decodePayload(payload) {
@@ -952,9 +1059,9 @@ function decodePayload(payload) {
   }
 }
 
-function setBusy(isBusy) {
+function setBusy(isBusy, label = null) {
   elements.joinButton.disabled = isBusy;
-  elements.joinButton.textContent = isBusy ? "Joining..." : "Join";
+  elements.joinButton.textContent = isBusy ? label || "Joining..." : "Prepare & Join";
 }
 
 function sleep(ms) {

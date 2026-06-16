@@ -14,7 +14,7 @@
           <h1>Future Self Call</h1>
         </div>
         <form id="joinForm" class="call-controls">
-          <button id="joinButton" type="submit">Join</button>
+          <button id="joinButton" type="submit">Prepare & Join</button>
           <button id="leaveButton" type="button" disabled>Leave</button>
         </form>
       </header>
@@ -41,7 +41,7 @@
         <div class="section-head">
           <div>
             <p class="eyebrow">Setup</p>
-            <h2>Survey & Voice</h2>
+            <h2>Prepare Future Self</h2>
           </div>
           <span id="activeRoom">psyche-avatar-lab</span>
         </div>
@@ -116,11 +116,51 @@
               <input id="weightDirect" type="range" min="0" max="100" value="45" />
             </label>
           </div>
-
-          <button id="generatePersonaButton" type="submit">Generate persona</button>
+          <label>
+            Current photo
+            <input id="futureImagePhoto" name="photo" type="file" accept="image/png,image/jpeg,image/webp" />
+          </label>
+          <div class="form-grid">
+            <label>
+              Years
+              <select id="futureImageYears">
+                <option value="10">10 years</option>
+                <option value="20">20 years</option>
+                <option value="30">30 years</option>
+              </select>
+            </label>
+            <label>
+              Style
+              <select id="futureImageStyle">
+                <option value="natural video-call portrait">natural</option>
+                <option value="successful but realistic professional portrait">successful</option>
+                <option value="tired but resilient realistic portrait">resilient</option>
+              </select>
+            </label>
+          </div>
+          <label>
+            Speaking loop sample audio
+            <input id="avatarAudioFile" type="file" accept=".wav,.mp3,.m4a,.aac,audio/*" />
+          </label>
+          <input id="avatarWorkerUrl" type="hidden" value="http://127.0.0.1:8080" />
+          <input id="avatarEngine" type="hidden" value="musetalk" />
+          <input id="avatarFacePath" type="hidden" value="models/assets/face-still.jpg" />
+          <input id="avatarAudioPath" type="hidden" value="models/assets/speech-clean.wav" />
+          <button id="generatePersonaButton" type="submit" hidden>Generate persona</button>
         </form>
 
-        <form id="voiceCloneForm" class="setup-form voice-form">
+        <section class="prep-status-card">
+          <h2>Before Join</h2>
+          <div id="prepStatus" class="demo-status">Join을 누르면 미래 얼굴 생성, MuseTalk speaking loop 준비, 방 입장을 순서대로 진행합니다.</div>
+          <ol class="prep-checklist">
+            <li id="prepPersonaStatus">1. Persona waiting</li>
+            <li id="prepImageStatus">2. Future face waiting</li>
+            <li id="prepLoopStatus">3. MuseTalk loop waiting</li>
+            <li id="prepJoinStatus">4. Room join waiting</li>
+          </ol>
+        </section>
+
+        <form id="voiceCloneForm" class="setup-form voice-form hidden-panel">
           <label>
             Voice sample
             <input id="voiceSample" name="sample" type="file" accept=".wav,.mp3,audio/wav,audio/mpeg" />
@@ -146,76 +186,23 @@
           <button id="cloneVoiceButton" type="submit">Clone voice</button>
         </form>
 
-        <div class="setup-output">
+        <div class="setup-output hidden-panel">
           <h2>Generated Config</h2>
           <pre id="setupOutput">No persona or voice generated yet</pre>
         </div>
 
-        <form id="futureImageForm" class="setup-form avatar-demo-form">
-          <h2>Future Face</h2>
-          <label>
-            Current photo
-            <input id="futureImagePhoto" name="photo" type="file" accept="image/png,image/jpeg,image/webp" />
-          </label>
-          <div class="form-grid">
-            <label>
-              Years
-              <select id="futureImageYears">
-                <option value="10">10 years</option>
-                <option value="20">20 years</option>
-                <option value="30">30 years</option>
-              </select>
-            </label>
-            <label>
-              Style
-              <select id="futureImageStyle">
-                <option value="natural video-call portrait">natural</option>
-                <option value="successful but realistic professional portrait">successful</option>
-                <option value="tired but resilient realistic portrait">resilient</option>
-              </select>
-            </label>
-          </div>
+        <form id="futureImageForm" class="setup-form avatar-demo-form hidden-panel">
           <button id="generateFutureImageButton" type="submit">Generate future face</button>
           <div id="futureImageStatus" class="demo-status">Future face waiting</div>
         </form>
 
-        <form id="avatarDemoForm" class="setup-form avatar-demo-form">
-          <h2>Avatar Preview</h2>
-          <label>
-            GPU worker URL
-            <input id="avatarWorkerUrl" value="http://127.0.0.1:8080" />
-          </label>
-          <div class="form-grid">
-            <label>
-              Engine
-              <select id="avatarEngine">
-                <option value="mouth-puppet">Fast Mouth Puppet</option>
-                <option value="wav2lip">Fast Wav2Lip</option>
-                <option value="musetalk">Quality MuseTalk</option>
-              </select>
-            </label>
-            <label>
-              Face source
-              <input id="avatarFacePath" value="models/assets/face-still.jpg" />
-            </label>
-            <label>
-              Reply audio
-              <input id="avatarAudioPath" value="models/assets/speech-clean.wav" />
-            </label>
-          </div>
-          <label>
-            Upload reply audio
-            <input id="avatarAudioFile" type="file" accept=".wav,.mp3,.m4a,.aac,audio/*" />
-          </label>
-          <div class="form-grid">
-            <button id="generateAvatarButton" type="submit">Generate avatar reply</button>
-            <button id="generateLoopButton" type="button">Generate speaking loop</button>
-          </div>
+        <form id="avatarDemoForm" class="setup-form avatar-demo-form hidden-panel">
+          <button id="generateAvatarButton" type="submit">Generate avatar reply</button>
+          <button id="generateLoopButton" type="button">Generate speaking loop</button>
           <div id="avatarDemoStatus" class="demo-status">GPU worker waiting</div>
         </form>
 
-        <form id="askAvatarForm" class="setup-form avatar-demo-form">
-          <h2>Ask Future Self</h2>
+        <form id="askAvatarForm" class="setup-form avatar-demo-form hidden-panel">
           <label>
             Question
             <textarea id="avatarQuestion" placeholder="지금 내가 뭘 먼저 해야 할까?"></textarea>
@@ -224,7 +211,7 @@
           <div id="askAvatarStatus" class="demo-status">AI reply waiting</div>
         </form>
 
-        <ol id="eventLog" class="event-log compact-log">
+        <ol id="eventLog" class="event-log compact-log hidden-panel">
           <li>Waiting for call events</li>
         </ol>
       </section>

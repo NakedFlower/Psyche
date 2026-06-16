@@ -268,7 +268,7 @@ h2 {
 
 .setup-panel {
   display: grid;
-  grid-template-columns: repeat(4, minmax(240px, 1fr));
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
   gap: 1rem;
   padding: 0 1rem 1rem;
 }
@@ -283,6 +283,10 @@ h2 {
   display: grid;
   align-content: start;
   gap: 0.72rem;
+  border: 1px solid #303934;
+  border-radius: 8px;
+  padding: 0.95rem;
+  background: #101513;
 }
 
 .form-grid,
@@ -315,13 +319,6 @@ h2 {
   gap: 0.55rem;
 }
 
-.avatar-demo-form {
-  border: 1px solid #303934;
-  border-radius: 8px;
-  padding: 0.85rem;
-  background: #101513;
-}
-
 .demo-status {
   min-height: 2.35rem;
   border: 1px solid #303934;
@@ -330,6 +327,44 @@ h2 {
   color: #b8c0b9;
   background: #171c1a;
   font-size: 0.82rem;
+}
+
+.prep-status-card {
+  display: grid;
+  align-content: start;
+  gap: 0.8rem;
+  border: 1px solid #303934;
+  border-radius: 8px;
+  padding: 0.95rem;
+  background: #101513;
+}
+
+.prep-checklist {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding-left: 1.1rem;
+  color: #b8c0b9;
+}
+
+.prep-checklist li {
+  padding: 0.2rem 0;
+}
+
+.prep-checklist li[data-status="working"] {
+  color: #f4f2ec;
+}
+
+.prep-checklist li[data-status="done"] {
+  color: #c9e86a;
+}
+
+.prep-checklist li[data-status="error"] {
+  color: #ef8d74;
+}
+
+.hidden-panel {
+  display: none;
 }
 
 .setup-output pre,
