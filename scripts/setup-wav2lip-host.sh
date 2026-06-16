@@ -18,7 +18,7 @@ fi
 python3 -m venv "$VENV_DIR"
 source "$VENV_DIR/bin/activate"
 
-python -m pip install --no-cache-dir --upgrade pip setuptools wheel
+python -m pip install --no-cache-dir --upgrade "pip<25" "setuptools<81" wheel
 python -m pip install --no-cache-dir \
   torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 \
   --index-url https://download.pytorch.org/whl/cu121
