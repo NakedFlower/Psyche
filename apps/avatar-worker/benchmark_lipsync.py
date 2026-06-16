@@ -132,6 +132,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--musetalk-batch-size", type=int, default=int(os.environ.get("MUSETALK_BATCH_SIZE", "8")))
     parser.add_argument("--musetalk-use-float16", action="store_true", default=os.environ.get("MUSETALK_USE_FLOAT16") == "1")
     parser.add_argument("--musetalk-bbox-shift", type=int, default=int(os.environ.get("MUSETALK_BBOX_SHIFT", "0")))
+    parser.add_argument(
+        "--musetalk-inference-mode",
+        choices=["normal", "realtime"],
+        default=os.environ.get("MUSETALK_INFERENCE_MODE", "normal"),
+        help="Use MuseTalk normal inference or realtime inference with avatar preparation cache.",
+    )
+    parser.add_argument(
+        "--musetalk-avatar-id",
+        default=os.environ.get("MUSETALK_AVATAR_ID", "psyche-avatar"),
+        help="Avatar id used by MuseTalk realtime inference cache.",
+    )
+    parser.add_argument(
+        "--musetalk-realtime-preparation",
+        action="store_true",
+        default=os.environ.get("MUSETALK_REALTIME_PREPARATION") == "1",
+        help="Prepare/rebuild the MuseTalk realtime avatar cache before generating.",
+    )
     return parser.parse_args()
 
 
@@ -425,6 +442,10 @@ def patch_wav2lip_inference(inference: Path) -> None:
 
 
 def run_musetalk(args: argparse.Namespace, out_dir: Path, report: dict[str, Any], started: float) -> None:
+    if args.musetalk_inference_mode == "realtime":
+        run_musetalk_realtime(args, out_dir, report, started)
+        return
+
     stage_started = time.perf_counter()
     stage_timings: dict[str, int] = {}
     repo = Path(args.musetalk_repo).resolve()
@@ -535,6 +556,129 @@ def run_musetalk(args: argparse.Namespace, out_dir: Path, report: dict[str, Any]
     report["status"] = "ok"
     report["output"]["video"] = str(output.resolve())
     report["output"]["bytes"] = output.stat().st_size
+    stage_started = time.perf_counter()
+    report["output"]["videoMetadata"] = probe_media(output, report)
+    stage_timings["outputProbeMs"] = elapsed_ms(stage_started)
+    add_realtime_metrics(report)
+
+
+def run_musetalk_realtime(args: argparse.Namespace, out_dir: Path, report: dict[str, Any], started: float) -> None:
+    stage_started = time.perf_counter()
+    stage_timings: dict[str, int] = {}
+    repo = Path(args.musetalk_repo).resolve()
+    inference = repo / "scripts" / "realtime_inference.py"
+    result_dir = out_dir / "musetalk-realtime-results"
+    output = out_dir / "output.mp4"
+    stdout_log = out_dir / "musetalk-realtime.stdout.log"
+    stderr_log = out_dir / "musetalk-realtime.stderr.log"
+    config_path = out_dir / "musetalk.realtime.yaml"
+    avatar_id = safe_identifier(args.musetalk_avatar_id)
+
+    report["artifacts"] = {
+        "stdout": str(stdout_log),
+        "stderr": str(stderr_log),
+        "config": str(config_path),
+    }
+
+    if not inference.exists():
+        raise BenchmarkBlocked(f"MuseTalk realtime inference is missing: {inference}. Update the MuseTalk repo on the GPU server.")
+
+    version_dir = "musetalkV15" if args.musetalk_version == "v15" else "musetalk"
+    unet_model = "unet.pth" if args.musetalk_version == "v15" else "pytorch_model.bin"
+    required_paths = [
+        repo / "models" / version_dir / "musetalk.json",
+        repo / "models" / version_dir / unet_model,
+        repo / "models" / "sd-vae" / "config.json",
+        repo / "models" / "sd-vae" / "diffusion_pytorch_model.bin",
+        repo / "models" / "whisper" / "config.json",
+        repo / "models" / "dwpose" / "dw-ll_ucoco_384.pth",
+        repo / "models" / "face-parse-bisent" / "79999_iter.pth",
+    ]
+    missing = [str(path) for path in required_paths if not path.exists()]
+    if missing:
+        raise BenchmarkBlocked("MuseTalk weights are missing. Run scripts/setup-musetalk-host.sh. Missing: " + ", ".join(missing))
+    stage_timings["preflightMs"] = elapsed_ms(stage_started)
+
+    stage_started = time.perf_counter()
+    result_dir.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                f"{avatar_id}:",
+                f"  preparation: {'True' if args.musetalk_realtime_preparation else 'False'}",
+                f"  bbox_shift: {args.musetalk_bbox_shift}",
+                f'  video_path: "{Path(args.face).resolve()}"',
+                "  audio_clips:",
+                f'    output: "{Path(args.audio).resolve()}"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    stage_timings["configMs"] = elapsed_ms(stage_started)
+
+    stage_started = time.perf_counter()
+    command = [
+        sys.executable,
+        "-m",
+        "scripts.realtime_inference",
+        "--inference_config",
+        str(config_path),
+        "--result_dir",
+        str(result_dir),
+        "--unet_model_path",
+        str(repo / "models" / version_dir / unet_model),
+        "--unet_config",
+        str(repo / "models" / version_dir / "musetalk.json"),
+        "--whisper_dir",
+        str(repo / "models" / "whisper"),
+        "--version",
+        args.musetalk_version,
+        "--batch_size",
+        str(args.musetalk_batch_size),
+        "--fps",
+        str(args.fps),
+        "--ffmpeg_path",
+        "/usr/bin",
+    ]
+    report["plan"]["command"] = command
+    report["plan"]["musetalkMode"] = "realtime"
+    report["plan"]["avatarId"] = avatar_id
+    report["plan"]["preparation"] = args.musetalk_realtime_preparation
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(repo) + os.pathsep + env.get("PYTHONPATH", "")
+    report["environment"]["torch"] = collect_torch_environment(sys.executable, repo, env)
+    inference_started = time.perf_counter()
+    result, gpu_samples = run_with_gpu_monitor(command, cwd=repo, env=env)
+    stdout_log.write_text(result.stdout, encoding="utf-8")
+    stderr_log.write_text(result.stderr, encoding="utf-8")
+    stage_timings["subprocessMs"] = elapsed_ms(stage_started)
+
+    report["metrics"]["inferenceMs"] = round((time.perf_counter() - inference_started) * 1000)
+    report["metrics"]["wallClockMs"] = elapsed_ms(started)
+    report["metrics"]["gpuMemoryMb"] = collect_gpu_memory_mb()
+    report["metrics"]["gpuSamples"] = gpu_samples[-20:]
+    report["metrics"]["maxGpuMemoryMb"] = max((sample.get("memoryMb") or 0 for sample in gpu_samples), default=0)
+    report["metrics"]["maxGpuUtilizationPct"] = max((sample.get("utilizationPct") or 0 for sample in gpu_samples), default=0)
+    report["metrics"]["stageTimings"] = stage_timings
+
+    stage_started = time.perf_counter()
+    candidate = repo / "results" / args.musetalk_version / "avatars" / avatar_id / "vid_output" / "output.mp4"
+    if candidate.exists() and candidate.resolve() != output.resolve():
+        shutil.copyfile(candidate, output)
+    stage_timings["outputCopyMs"] = elapsed_ms(stage_started)
+
+    if result.returncode != 0:
+        tail = "\n".join((result.stderr or result.stdout).splitlines()[-30:])
+        raise BenchmarkError(f"MuseTalk realtime failed with exit code {result.returncode}. log tail:\n{tail}")
+    if not output.exists():
+        raise BenchmarkError(f"MuseTalk realtime completed but did not create output: {output}. Expected: {candidate}")
+
+    report["status"] = "ok"
+    report["output"]["video"] = str(output.resolve())
+    report["output"]["bytes"] = output.stat().st_size
+    report["output"]["avatarCacheDir"] = str((repo / "results" / args.musetalk_version / "avatars" / avatar_id).resolve())
     stage_started = time.perf_counter()
     report["output"]["videoMetadata"] = probe_media(output, report)
     stage_timings["outputProbeMs"] = elapsed_ms(stage_started)
@@ -681,6 +825,11 @@ def parse_int(value: str) -> int | None:
         return int(value)
     except ValueError:
         return None
+
+
+def safe_identifier(value: str) -> str:
+    cleaned = "".join(char if char.isalnum() or char in "-_" else "-" for char in str(value))
+    return cleaned[:80] or "psyche-avatar"
 
 
 def collect_gpu_memory_mb() -> int | None:

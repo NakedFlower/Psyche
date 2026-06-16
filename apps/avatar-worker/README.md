@@ -249,6 +249,29 @@ Run a host-side benchmark:
 scripts/avatar-worker-host-musetalk.sh
 ```
 
+If the source avatar video is high resolution, prepare a lighter profiling
+source first:
+
+```sh
+scripts/prepare-avatar-source.sh models/assets/face.mp4 models/assets/face-optimized.mp4
+FACE_PATH=models/assets/face-optimized.mp4 scripts/avatar-worker-host-musetalk.sh
+```
+
+To test MuseTalk's reusable realtime avatar cache:
+
+```sh
+MUSETALK_INFERENCE_MODE=realtime \
+MUSETALK_REALTIME_PREPARATION=1 \
+MUSETALK_AVATAR_ID=future-self-v1 \
+FACE_PATH=models/assets/face-optimized.mp4 \
+scripts/avatar-worker-host-musetalk.sh
+
+MUSETALK_INFERENCE_MODE=realtime \
+MUSETALK_AVATAR_ID=future-self-v1 \
+FACE_PATH=models/assets/face-optimized.mp4 \
+scripts/avatar-worker-host-musetalk.sh
+```
+
 Run the HTTP worker without Docker:
 
 ```sh

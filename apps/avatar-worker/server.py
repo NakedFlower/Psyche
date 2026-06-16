@@ -53,6 +53,11 @@ class AvatarWorkerHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if parsed.path.startswith("/v1/avatars/"):
+            avatar_id = safe_slug(parsed.path.rsplit("/", 1)[-1])
+            self.send_json(get_avatar(avatar_id) or {"error": "avatar_not_found"}, status=200 if get_avatar(avatar_id) else 404)
+            return
+
         if parsed.path.startswith("/v1/lipsync/jobs/"):
             job_id = parsed.path.rsplit("/", 1)[-1]
             self.send_json(get_job(job_id) or {"error": "job_not_found"}, status=200 if get_job(job_id) else 404)
@@ -68,6 +73,9 @@ class AvatarWorkerHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/v1/demo/generate":
             self.generate_demo()
+            return
+        if parsed.path == "/v1/avatars":
+            self.create_avatar()
             return
         if parsed.path == "/v1/lipsync/jobs":
             self.create_job()
@@ -85,6 +93,18 @@ class AvatarWorkerHandler(BaseHTTPRequestHandler):
         try:
             body = self.read_request_body()
             job = create_lipsync_job(body)
+        except ValueError as error:
+            self.send_json({"error": str(error)}, status=400)
+            return
+
+        thread = threading.Thread(target=run_lipsync_job, args=(job["jobId"],), daemon=True)
+        thread.start()
+        self.send_json(job, status=202)
+
+    def create_avatar(self) -> None:
+        try:
+            body = self.read_request_body()
+            job = create_avatar_job(body)
         except ValueError as error:
             self.send_json({"error": str(error)}, status=400)
             return
@@ -187,6 +207,7 @@ def create_lipsync_job(body: dict) -> dict:
 
     face_path = sanitize_relative_path(body.get("facePath") or DEFAULT_FACE)
     audio_path = sanitize_relative_path(body.get("audioPath") or DEFAULT_AUDIO)
+    avatar_id = safe_slug(str(body.get("avatarId") or "")) or None
     batch_size = int(body.get("batchSize") or os.environ.get("MUSETALK_BATCH_SIZE", "8"))
     bbox_shift = int(body.get("bboxShift") or os.environ.get("MUSETALK_BBOX_SHIFT", "0"))
     use_float16 = parse_bool(body.get("useFloat16", os.environ.get("MUSETALK_USE_FLOAT16", "1") == "1"))
@@ -197,12 +218,14 @@ def create_lipsync_job(body: dict) -> dict:
     job = {
         "jobId": job_id,
         "status": "queued",
+        "type": "lipsync",
         "engine": engine,
         "createdAt": datetime.now(timezone.utc).isoformat(),
         "updatedAt": datetime.now(timezone.utc).isoformat(),
         "input": {
             "facePath": face_path,
             "audioPath": audio_path,
+            "avatarId": avatar_id,
             "uploadedAudioName": body.get("uploadedAudioName"),
             "batchSize": batch_size,
             "bboxShift": bbox_shift,
@@ -211,6 +234,42 @@ def create_lipsync_job(body: dict) -> dict:
         "outputDir": str(out_dir),
         "videoUrl": f"/runs/lipsync/jobs/{job_id}/output.mp4",
         "reportUrl": f"/runs/lipsync/jobs/{job_id}/report.json",
+    }
+    with JOBS_LOCK:
+        JOBS[job_id] = job
+    return job
+
+
+def create_avatar_job(body: dict) -> dict:
+    face_path = sanitize_relative_path(body.get("facePath") or DEFAULT_FACE)
+    audio_path = sanitize_relative_path(body.get("audioPath") or DEFAULT_AUDIO)
+    avatar_id = safe_slug(str(body.get("avatarId") or Path(face_path).stem or "psyche-avatar"))
+    batch_size = int(body.get("batchSize") or os.environ.get("MUSETALK_BATCH_SIZE", "8"))
+    bbox_shift = int(body.get("bboxShift") or os.environ.get("MUSETALK_BBOX_SHIFT", "0"))
+    use_float16 = parse_bool(body.get("useFloat16", os.environ.get("MUSETALK_USE_FLOAT16", "1") == "1"))
+
+    job_id = safe_slug(str(body.get("jobId") or f"avatar-{avatar_id}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"))
+    out_dir = RUNS_DIR / "lipsync" / "avatar-prep" / job_id
+    job = {
+        "jobId": job_id,
+        "status": "queued",
+        "type": "avatar.prepare",
+        "engine": "musetalk",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "avatarId": avatar_id,
+        "input": {
+            "facePath": face_path,
+            "audioPath": audio_path,
+            "avatarId": avatar_id,
+            "batchSize": batch_size,
+            "bboxShift": bbox_shift,
+            "useFloat16": use_float16,
+        },
+        "outputDir": str(out_dir),
+        "avatarUrl": f"/v1/avatars/{avatar_id}",
+        "videoUrl": f"/runs/lipsync/avatar-prep/{job_id}/output.mp4",
+        "reportUrl": f"/runs/lipsync/avatar-prep/{job_id}/report.json",
     }
     with JOBS_LOCK:
         JOBS[job_id] = job
@@ -243,6 +302,15 @@ def run_lipsync_job(job_id: str) -> None:
         "--musetalk-bbox-shift",
         str(job["input"]["bboxShift"]),
     ]
+    if job["input"].get("avatarId"):
+        command.extend([
+            "--musetalk-inference-mode",
+            "realtime",
+            "--musetalk-avatar-id",
+            str(job["input"]["avatarId"]),
+        ])
+        if job.get("type") == "avatar.prepare":
+            command.append("--musetalk-realtime-preparation")
     if job["input"]["useFloat16"]:
         command.append("--musetalk-use-float16")
 
@@ -261,6 +329,8 @@ def run_lipsync_job(job_id: str) -> None:
     if status == "failed":
         patch["error"] = report.get("error") or "\n".join(result.stderr.splitlines()[-30:])
         patch["stderrTail"] = "\n".join(result.stderr.splitlines()[-30:])
+    if job["input"].get("avatarId"):
+        patch["avatar"] = get_avatar(str(job["input"]["avatarId"]))
     update_job(job_id, patch)
 
 
@@ -275,6 +345,27 @@ def update_job(job_id: str, patch: dict) -> None:
         if job_id not in JOBS:
             return
         JOBS[job_id].update(patch)
+
+
+def get_avatar(avatar_id: str) -> dict | None:
+    avatar_id = safe_slug(avatar_id)
+    if not avatar_id:
+        return None
+    repo = Path(os.environ.get("MUSETALK_REPO", ROOT / "models" / "musetalk" / "repos" / "MuseTalk"))
+    version = os.environ.get("MUSETALK_VERSION", "v15")
+    avatar_dir = repo / "results" / version / "avatars" / avatar_id
+    if not avatar_dir.exists():
+        return None
+    info = read_json_file(avatar_dir / "avator_info.json")
+    return {
+        "avatarId": avatar_id,
+        "status": "ready",
+        "cacheDir": str(avatar_dir),
+        "info": info,
+        "hasLatents": (avatar_dir / "latents.pt").exists(),
+        "hasCoords": (avatar_dir / "coords.pkl").exists(),
+        "hasMasks": (avatar_dir / "mask_coords.pkl").exists(),
+    }
 
 
 def sanitize_relative_path(value: str) -> str:

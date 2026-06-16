@@ -47,6 +47,39 @@ If almost all time is in `subprocessMs`, the next optimization target is a
 persistent MuseTalk worker that keeps Python imports and model weights warm
 instead of starting a fresh process per answer.
 
+If CUDA is available but GPU utilization stays very low, reduce the source
+avatar video size before deeper worker changes:
+
+```sh
+scripts/prepare-avatar-source.sh models/assets/face.mp4 models/assets/face-optimized.mp4
+FACE_PATH=models/assets/face-optimized.mp4 OUT_DIR=runs/lipsync/profile-optimized-$(date +%Y%m%dT%H%M%S) scripts/avatar-worker-host-musetalk.sh
+```
+
+Compare `inferenceMs`, `maxGpuUtilizationPct`, and `inferenceRealtimeFactor`
+against the original 1080x1920 input. This checks whether high-resolution frame
+processing is the dominant bottleneck.
+
+MuseTalk also provides a realtime inference path with avatar preparation cache.
+Use it to split one-time avatar preprocessing from per-answer lipsync:
+
+```sh
+MUSETALK_INFERENCE_MODE=realtime \
+MUSETALK_REALTIME_PREPARATION=1 \
+MUSETALK_AVATAR_ID=future-self-v1 \
+FACE_PATH=models/assets/face-optimized.mp4 \
+OUT_DIR=runs/lipsync/profile-realtime-prepare-$(date +%Y%m%dT%H%M%S) \
+scripts/avatar-worker-host-musetalk.sh
+
+MUSETALK_INFERENCE_MODE=realtime \
+MUSETALK_AVATAR_ID=future-self-v1 \
+FACE_PATH=models/assets/face-optimized.mp4 \
+OUT_DIR=runs/lipsync/profile-realtime-reuse-$(date +%Y%m%dT%H%M%S) \
+scripts/avatar-worker-host-musetalk.sh
+```
+
+The first command measures cache preparation plus one generation. The second
+command measures the reusable per-answer path.
+
 ## Target Ranges
 
 - Voice turn stop to AI first audio: under 1500 ms.
