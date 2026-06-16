@@ -22,7 +22,7 @@ python -m pip install \
   torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 \
   --index-url https://download.pytorch.org/whl/cu121
 python -m pip install -r "$LIVEPORTRAIT_REPO_DIR/requirements.txt"
-python -m pip install "huggingface_hub[cli]==0.30.2"
+python -m pip install "huggingface_hub[cli]==0.30.2" tyro imageio imageio-ffmpeg opencv-python-headless
 
 cat <<MSG
 LivePortrait host environment is ready:

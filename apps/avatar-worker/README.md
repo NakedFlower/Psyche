@@ -316,6 +316,10 @@ GPU host setup:
 scripts/setup-liveportrait-host.sh
 ```
 
+If `inference.py` complains about a missing module such as `tyro`, rerun the
+same setup script after pulling the latest branch so the host venv picks up the
+extra package installs.
+
 Set the optional idle driving source if you have a better blink/head-motion
 template than the repo default:
 
