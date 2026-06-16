@@ -80,6 +80,21 @@ scripts/avatar-worker-host-musetalk.sh
 The first command measures cache preparation plus one generation. The second
 command measures the reusable per-answer path.
 
+Compare the same optimized source against Wav2Lip:
+
+```sh
+scripts/setup-wav2lip-host.sh
+
+FACE_PATH=models/assets/face-optimized.mp4 \
+AUDIO_PATH=models/assets/speech-clean.wav \
+OUT_DIR=runs/lipsync/wav2lip-optimized-$(date +%Y%m%dT%H%M%S) \
+scripts/avatar-worker-host-wav2lip.sh
+```
+
+Use the same `inferenceMs`, `inferenceRealtimeFactor`,
+`maxGpuMemoryMb`, and `maxGpuUtilizationPct` fields to compare Wav2Lip against
+MuseTalk realtime cache reuse.
+
 ## Target Ranges
 
 - Voice turn stop to AI first audio: under 1500 ms.

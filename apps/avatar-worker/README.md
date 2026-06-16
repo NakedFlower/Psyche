@@ -118,6 +118,16 @@ Then build the Wav2Lip-enabled Docker image and run inference:
 sudo scripts/avatar-worker-wav2lip.sh
 ```
 
+During R&D, the host-side Wav2Lip runner avoids Docker rebuilds:
+
+```sh
+scripts/setup-wav2lip-host.sh
+FACE_PATH=models/assets/face-optimized.mp4 \
+AUDIO_PATH=models/assets/speech-clean.wav \
+OUT_DIR=runs/lipsync/wav2lip-optimized-$(date +%Y%m%dT%H%M%S) \
+scripts/avatar-worker-host-wav2lip.sh
+```
+
 Outputs:
 
 ```txt

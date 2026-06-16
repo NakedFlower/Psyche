@@ -377,14 +377,18 @@ def run_wav2lip(args: argparse.Namespace, out_dir: Path, report: dict[str, Any],
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(repo) + os.pathsep + env.get("PYTHONPATH", "")
+    report["environment"]["torch"] = collect_torch_environment(sys.executable, repo, env)
     inference_started = time.perf_counter()
-    result = subprocess.run(command, cwd=repo, env=env, text=True, capture_output=True, check=False)
+    result, gpu_samples = run_with_gpu_monitor(command, cwd=repo, env=env)
     stdout_log.write_text(result.stdout, encoding="utf-8")
     stderr_log.write_text(result.stderr, encoding="utf-8")
 
     report["metrics"]["inferenceMs"] = round((time.perf_counter() - inference_started) * 1000)
     report["metrics"]["wallClockMs"] = elapsed_ms(started)
     report["metrics"]["gpuMemoryMb"] = collect_gpu_memory_mb()
+    report["metrics"]["gpuSamples"] = gpu_samples[-20:]
+    report["metrics"]["maxGpuMemoryMb"] = max((sample.get("memoryMb") or 0 for sample in gpu_samples), default=0)
+    report["metrics"]["maxGpuUtilizationPct"] = max((sample.get("utilizationPct") or 0 for sample in gpu_samples), default=0)
 
     if result.returncode != 0:
         tail = "\n".join(result.stderr.splitlines()[-20:])
@@ -396,6 +400,7 @@ def run_wav2lip(args: argparse.Namespace, out_dir: Path, report: dict[str, Any],
     report["output"]["video"] = str(output.resolve())
     report["output"]["bytes"] = output.stat().st_size
     report["output"]["videoMetadata"] = probe_media(output, report)
+    add_realtime_metrics(report)
 
 
 def patch_wav2lip_inference(inference: Path) -> None:
