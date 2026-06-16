@@ -251,7 +251,17 @@ async function publishRealtimeAudio(activeRoom) {
     },
     onOutputText: async (text, metadata = {}) => {
       if (!text.trim()) return;
+      await publishAgentState(room, "speaking", {
+        reason: "elevenlabs-tts-start",
+        textLength: text.length,
+        responseId: metadata.responseId || null
+      });
       await elevenLabsOutput?.speak(text, metadata);
+      await publishAgentState(room, "idle", {
+        reason: "elevenlabs-tts-finished",
+        textLength: text.length,
+        responseId: metadata.responseId || null
+      });
     },
     onResponseDone: async ({ transcript, text, responseId, usage }) => {
       if (!config.videoReplyEnabled) return;
@@ -925,7 +935,8 @@ async function loadPersonaConfig(filePath) {
 
   const resolved = path.resolve(filePath);
   if (!fs.existsSync(resolved)) {
-    throw new Error(`AVATAR_PERSONA_FILE does not exist: ${resolved}`);
+    console.warn(`AVATAR_PERSONA_FILE does not exist, using default persona: ${resolved}`);
+    return null;
   }
 
   const raw = JSON.parse(fs.readFileSync(resolved, "utf8"));
