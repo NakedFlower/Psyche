@@ -425,6 +425,8 @@ def patch_wav2lip_inference(inference: Path) -> None:
 
 
 def run_musetalk(args: argparse.Namespace, out_dir: Path, report: dict[str, Any], started: float) -> None:
+    stage_started = time.perf_counter()
+    stage_timings: dict[str, int] = {}
     repo = Path(args.musetalk_repo).resolve()
     inference = repo / "scripts" / "inference.py"
     result_dir = out_dir / "musetalk-results"
@@ -456,7 +458,9 @@ def run_musetalk(args: argparse.Namespace, out_dir: Path, report: dict[str, Any]
     missing = [str(path) for path in required_paths if not path.exists()]
     if missing:
         raise BenchmarkBlocked("MuseTalk weights are missing. Run scripts/setup-musetalk.sh. Missing: " + ", ".join(missing))
+    stage_timings["preflightMs"] = elapsed_ms(stage_started)
 
+    stage_started = time.perf_counter()
     result_dir.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
         "\n".join(
@@ -471,7 +475,9 @@ def run_musetalk(args: argparse.Namespace, out_dir: Path, report: dict[str, Any]
         ),
         encoding="utf-8",
     )
+    stage_timings["configMs"] = elapsed_ms(stage_started)
 
+    stage_started = time.perf_counter()
     command = [
         sys.executable,
         "-m",
@@ -503,14 +509,18 @@ def run_musetalk(args: argparse.Namespace, out_dir: Path, report: dict[str, Any]
     result = subprocess.run(command, cwd=repo, env=env, text=True, capture_output=True, check=False)
     stdout_log.write_text(result.stdout, encoding="utf-8")
     stderr_log.write_text(result.stderr, encoding="utf-8")
+    stage_timings["subprocessMs"] = elapsed_ms(stage_started)
 
     report["metrics"]["inferenceMs"] = round((time.perf_counter() - inference_started) * 1000)
     report["metrics"]["wallClockMs"] = elapsed_ms(started)
     report["metrics"]["gpuMemoryMb"] = collect_gpu_memory_mb()
+    report["metrics"]["stageTimings"] = stage_timings
 
+    stage_started = time.perf_counter()
     candidate = result_dir / args.musetalk_version / "output.mp4"
     if candidate.exists() and candidate.resolve() != output.resolve():
         shutil.copyfile(candidate, output)
+    stage_timings["outputCopyMs"] = elapsed_ms(stage_started)
 
     if result.returncode != 0:
         tail = "\n".join((result.stderr or result.stdout).splitlines()[-30:])
@@ -521,7 +531,45 @@ def run_musetalk(args: argparse.Namespace, out_dir: Path, report: dict[str, Any]
     report["status"] = "ok"
     report["output"]["video"] = str(output.resolve())
     report["output"]["bytes"] = output.stat().st_size
+    stage_started = time.perf_counter()
     report["output"]["videoMetadata"] = probe_media(output, report)
+    stage_timings["outputProbeMs"] = elapsed_ms(stage_started)
+    add_realtime_metrics(report)
+
+
+def add_realtime_metrics(report: dict[str, Any]) -> None:
+    audio_duration = media_duration_seconds(report["inputs"].get("audioMetadata"))
+    video_duration = media_duration_seconds(report["output"].get("videoMetadata"))
+    inference_ms = report["metrics"].get("inferenceMs")
+    wall_clock_ms = report["metrics"].get("wallClockMs")
+
+    if audio_duration:
+        report["metrics"]["audioDurationSec"] = round(audio_duration, 3)
+    if video_duration:
+        report["metrics"]["videoDurationSec"] = round(video_duration, 3)
+    if audio_duration and inference_ms:
+        report["metrics"]["inferenceRealtimeFactor"] = round(audio_duration / (inference_ms / 1000), 4)
+    if audio_duration and wall_clock_ms:
+        report["metrics"]["wallClockRealtimeFactor"] = round(audio_duration / (wall_clock_ms / 1000), 4)
+
+
+def media_duration_seconds(metadata: dict[str, Any] | None) -> float | None:
+    if not metadata:
+        return None
+    duration = metadata.get("format", {}).get("duration")
+    if duration is None:
+        durations = [
+            stream.get("duration")
+            for stream in metadata.get("streams", [])
+            if stream.get("duration") is not None
+        ]
+        duration = durations[0] if durations else None
+    if duration is None:
+        return None
+    try:
+        return float(duration)
+    except (TypeError, ValueError):
+        return None
 
 
 def collect_gpu_memory_mb() -> int | None:

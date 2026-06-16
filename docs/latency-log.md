@@ -26,6 +26,24 @@ scripts/benchmark-lipsync.sh --engine dry-run --generate-fixtures
 Then repeat the same command with `--engine wav2lip` or `--engine musetalk`
 after the model repositories and checkpoints are available on the GPU server.
 
+For MuseTalk profiling on the GPU server:
+
+```sh
+OUT_DIR=runs/lipsync/profile-$(date +%Y%m%dT%H%M%S) scripts/avatar-worker-host-musetalk.sh
+cat runs/lipsync/profile-*/report.json
+```
+
+Important fields:
+
+- `metrics.stageTimings.subprocessMs`: time spent inside MuseTalk inference process.
+- `metrics.inferenceRealtimeFactor`: audio seconds divided by inference seconds. `1.0` means realtime speed.
+- `metrics.wallClockRealtimeFactor`: audio seconds divided by full request wall-clock seconds.
+- `metrics.gpuMemoryMb`: peak-ish GPU memory snapshot after inference.
+
+If almost all time is in `subprocessMs`, the next optimization target is a
+persistent MuseTalk worker that keeps Python imports and model weights warm
+instead of starting a fresh process per answer.
+
 ## Target Ranges
 
 - Voice turn stop to AI first audio: under 1500 ms.
