@@ -270,18 +270,23 @@ async function createAvatarReply(req, res) {
       "사용자의 질문에 미래의 나 관점에서 답해줘.",
       `질문: ${question}`
     ].join("\n"),
-    maxTokens: Number(process.env.AVATAR_REPLY_MAX_TOKENS || 220),
+    maxTokens: Number(process.env.AVATAR_REPLY_MAX_TOKENS || 700),
     temperature: Number(process.env.AVATAR_REPLY_TEMPERATURE || 0.75)
   });
 
   const replyText = reply.text.trim();
   if (!replyText) {
+    const rawFile = path.resolve(rootDir, "runs/avatar-replies", `azure-empty-${Date.now()}.json`);
+    fs.mkdirSync(path.dirname(rawFile), { recursive: true });
+    fs.writeFileSync(rawFile, JSON.stringify(reply.raw, null, 2) + "\n", "utf8");
     return sendJson(res, 502, {
       error: "Azure returned an empty reply",
       azure: {
         deployment: reply.deployment,
         latencyMs: reply.latencyMs,
-        rawKeys: reply.raw && typeof reply.raw === "object" ? Object.keys(reply.raw) : []
+        rawKeys: reply.raw && typeof reply.raw === "object" ? Object.keys(reply.raw) : [],
+        rawFile: path.relative(rootDir, rawFile),
+        rawPreview: summarizeRawAzureResponse(reply.raw)
       }
     });
   }
@@ -358,6 +363,29 @@ async function synthesizeElevenLabsMp3(text) {
     throw new Error(`ElevenLabs TTS failed (${response.status}): ${typeof result === "string" ? result : JSON.stringify(result)}`);
   }
   return Buffer.from(await response.arrayBuffer());
+}
+
+function summarizeRawAzureResponse(raw) {
+  if (!raw || typeof raw !== "object") return raw;
+  return {
+    id: raw.id,
+    status: raw.status,
+    model: raw.model,
+    outputText: raw.output_text,
+    outputTypes: Array.isArray(raw.output)
+      ? raw.output.map((item) => ({
+          type: item.type,
+          role: item.role,
+          status: item.status,
+          contentTypes: Array.isArray(item.content)
+            ? item.content.map((content) => content.type || Object.keys(content))
+            : []
+        }))
+      : [],
+    usage: raw.usage,
+    incompleteDetails: raw.incomplete_details,
+    error: raw.error
+  };
 }
 
 function signLiveKitJwt({ apiKey, apiSecret, identity, name, grants, ttlSeconds }) {
