@@ -305,6 +305,37 @@ The same SSH tunnel still applies:
 ssh -L 8080:localhost:8080 gpu
 ```
 
+## LivePortrait Idle Loop
+
+For a more natural idle state than a static photo, use LivePortrait to generate
+an idle animation loop from the future-face image and a subtle driving clip.
+
+GPU host setup:
+
+```sh
+scripts/setup-liveportrait-host.sh
+```
+
+Set the optional idle driving source if you have a better blink/head-motion
+template than the repo default:
+
+```sh
+export LIVEPORTRAIT_IDLE_DRIVING=assets/examples/driving/d0.mp4
+```
+
+Then restart the host worker:
+
+```sh
+scripts/avatar-worker-host-server.sh
+```
+
+The web UI `Prepare & Join` flow will then build:
+
+1. future face
+2. LivePortrait idle loop
+3. MuseTalk speaking loop
+4. room join
+
 ## AI Reply Demo
 
 The temporary web UI can now ask a text question, generate a short future-self

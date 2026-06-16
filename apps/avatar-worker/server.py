@@ -47,7 +47,7 @@ class AvatarWorkerHandler(BaseHTTPRequestHandler):
                 {
                     "status": "ok",
                     "service": "psyche-avatar-worker",
-                    "engines": ["musetalk", "wav2lip", "mouth-puppet", "idle-loop"],
+                    "engines": ["musetalk", "wav2lip", "mouth-puppet", "liveportrait-idle"],
                     "root": str(ROOT),
                     "jobs": len(JOBS),
                 }
@@ -206,11 +206,11 @@ class AvatarWorkerHandler(BaseHTTPRequestHandler):
 
 def create_lipsync_job(body: dict) -> dict:
     engine = body.get("engine", "musetalk")
-    if engine not in {"musetalk", "wav2lip", "mouth-puppet", "idle-loop"}:
-        raise ValueError("Only musetalk, wav2lip, mouth-puppet, and idle-loop are wired for the worker endpoint.")
+    if engine not in {"musetalk", "wav2lip", "mouth-puppet", "liveportrait-idle"}:
+        raise ValueError("Only musetalk, wav2lip, mouth-puppet, and liveportrait-idle are wired for the worker endpoint.")
 
     face_path = sanitize_relative_path(body.get("facePath") or DEFAULT_FACE)
-    audio_path = None if engine == "idle-loop" else sanitize_relative_path(body.get("audioPath") or DEFAULT_AUDIO)
+    audio_path = None if engine == "liveportrait-idle" else sanitize_relative_path(body.get("audioPath") or DEFAULT_AUDIO)
     avatar_id = safe_slug(str(body.get("avatarId") or "")) or None
     batch_size = int(body.get("batchSize") or os.environ.get("MUSETALK_BATCH_SIZE", "8"))
     bbox_shift = int(body.get("bboxShift") or os.environ.get("MUSETALK_BBOX_SHIFT", "0"))
@@ -319,10 +319,10 @@ def run_lipsync_job(job_id: str) -> None:
             "--out-dir",
             str(out_dir),
         ]
-    elif job["engine"] == "idle-loop":
+    elif job["engine"] == "liveportrait-idle":
         command = [
             sys.executable,
-            str(ROOT / "apps" / "avatar-worker" / "idle_loop.py"),
+            str(ROOT / "apps" / "avatar-worker" / "liveportrait_idle.py"),
             "--face",
             job["input"]["facePath"],
             "--out-dir",

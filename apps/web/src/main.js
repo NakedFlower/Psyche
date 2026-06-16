@@ -194,9 +194,9 @@ async function prepareAndJoinRoom() {
     markPrepStep(currentStep, "done", "2. Future face ready");
 
     currentStep = elements.prepIdleStatus;
-    markPrepStep(currentStep, "working", "3. Building idle loop...");
+    markPrepStep(currentStep, "working", "3. Building LivePortrait idle loop...");
     await generateIdleLoop({ silent: true });
-    markPrepStep(currentStep, "done", "3. Idle loop ready");
+    markPrepStep(currentStep, "done", "3. LivePortrait idle loop ready");
 
     currentStep = elements.prepLoopStatus;
     markPrepStep(currentStep, "working", "4. Building MuseTalk speaking loop...");
@@ -520,7 +520,7 @@ async function generateIdleLoop(options = {}) {
 
   try {
     const response = await createAvatarJob(workerUrl, {
-      engineOverride: "idle-loop",
+      engineOverride: "liveportrait-idle",
       useAudio: false
     });
     const job = await response.json();
@@ -1050,7 +1050,7 @@ function markPrepStep(element, status, message) {
 function resetPrepChecklist() {
   markPrepStep(elements.prepPersonaStatus, "waiting", "1. Persona waiting");
   markPrepStep(elements.prepImageStatus, "waiting", "2. Future face waiting");
-  markPrepStep(elements.prepIdleStatus, "waiting", "3. Idle loop waiting");
+  markPrepStep(elements.prepIdleStatus, "waiting", "3. LivePortrait idle loop waiting");
   markPrepStep(elements.prepLoopStatus, "waiting", "4. MuseTalk loop waiting");
   markPrepStep(elements.prepJoinStatus, "waiting", "5. Room join waiting");
 }
