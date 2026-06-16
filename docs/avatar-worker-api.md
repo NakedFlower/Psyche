@@ -80,9 +80,9 @@ JSON request:
 
 ```json
 {
-  "engine": "musetalk",
+  "engine": "wav2lip",
   "avatarId": "future-self-v1",
-  "facePath": "models/assets/face.mp4",
+  "facePath": "models/assets/face-still.jpg",
   "audioPath": "models/assets/speech-clean.wav",
   "useFloat16": true
 }
@@ -109,9 +109,11 @@ Response:
 }
 ```
 
-When `avatarId` is present, the worker uses MuseTalk realtime inference with
-the cached avatar prepared by `POST /v1/avatars`. Without `avatarId`, the worker
-uses the older normal inference path.
+Use `engine: "wav2lip"` for the current fast still-image path. Use
+`engine: "musetalk"` for the higher-quality path. When `avatarId` is present
+with MuseTalk, the worker uses realtime inference with the cached avatar
+prepared by `POST /v1/avatars`. Without `avatarId`, MuseTalk uses the older
+normal inference path.
 
 ### `POST /v1/avatars`
 

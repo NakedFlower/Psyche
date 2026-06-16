@@ -22,7 +22,8 @@ export async function buildAvatarReplyJob({
   }
 
   const workerUrl = String(body.workerUrl || env.AVATAR_WORKER_URL || "http://127.0.0.1:8080").replace(/\/+$/, "");
-  const facePath = String(body.facePath || "models/assets/face.mp4").trim();
+  const engine = String(body.engine || env.AVATAR_LIPSYNC_ENGINE || "wav2lip").trim();
+  const facePath = String(body.facePath || env.AVATAR_FACE_PATH || "models/assets/face-still.jpg").trim();
   const persona = loadPersonaForReply({ rootDir, env, personaFile: body.personaFile });
 
   const reply = await runStage("azure.reply", () => chatWithAzureOpenAI({
@@ -30,14 +31,15 @@ export async function buildAvatarReplyJob({
       persona?.realtimeInstructions || "너는 Psyche의 미래 자아다. 한국어로 짧고 자연스럽게 답한다.",
       "",
       "지금 답변은 립싱크 영상으로 변환된다.",
-      "반드시 1~3문장으로 짧게 답한다.",
+      "반드시 1문장으로 답한다.",
+      "TTS로 읽었을 때 2~4초 안에 끝날 정도로 짧게 답한다.",
       "문장 사이에 긴 목록이나 마크다운을 쓰지 않는다."
     ].join("\n"),
     prompt: [
       "사용자의 질문에 미래의 나 관점에서 답해줘.",
       `질문: ${question}`
     ].join("\n"),
-    maxTokens: Number(env.AVATAR_REPLY_MAX_TOKENS || 700),
+    maxTokens: Number(env.AVATAR_REPLY_MAX_TOKENS || 120),
     temperature: Number(env.AVATAR_REPLY_TEMPERATURE || 0.75)
   }));
 
@@ -67,7 +69,7 @@ export async function buildAvatarReplyJob({
   fs.writeFileSync(audioFile, audio);
 
   const form = new FormData();
-  form.append("engine", "musetalk");
+  form.append("engine", engine);
   form.append("facePath", facePath);
   form.append("useFloat16", "true");
   form.append("audio", new Blob([audio], { type: "audio/mpeg" }), path.basename(audioFile));
@@ -93,6 +95,8 @@ export async function buildAvatarReplyJob({
       ok: true,
       replyText,
       audioFile: path.relative(rootDir, audioFile),
+      engine,
+      facePath,
       workerUrl,
       workerJob,
       azure: {

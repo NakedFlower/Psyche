@@ -159,8 +159,15 @@
           </label>
           <div class="form-grid">
             <label>
-              Face video
-              <input id="avatarFacePath" value="models/assets/face.mp4" />
+              Engine
+              <select id="avatarEngine">
+                <option value="wav2lip">Fast Wav2Lip</option>
+                <option value="musetalk">Quality MuseTalk</option>
+              </select>
+            </label>
+            <label>
+              Face source
+              <input id="avatarFacePath" value="models/assets/face-still.jpg" />
             </label>
             <label>
               Reply audio

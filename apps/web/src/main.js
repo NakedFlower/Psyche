@@ -37,6 +37,7 @@ const elements = {
   cloneVoiceButton: document.getElementById("cloneVoiceButton"),
   avatarDemoForm: document.getElementById("avatarDemoForm"),
   avatarWorkerUrl: document.getElementById("avatarWorkerUrl"),
+  avatarEngine: document.getElementById("avatarEngine"),
   avatarFacePath: document.getElementById("avatarFacePath"),
   avatarAudioPath: document.getElementById("avatarAudioPath"),
   avatarAudioFile: document.getElementById("avatarAudioFile"),
@@ -334,6 +335,7 @@ async function askFutureSelfAvatar() {
       body: JSON.stringify({
         question,
         workerUrl,
+        engine: elements.avatarEngine.value,
         facePath: elements.avatarFacePath.value.trim()
       })
     }).catch((error) => {
@@ -380,7 +382,7 @@ async function createAvatarJob(workerUrl) {
   const [audioFile] = elements.avatarAudioFile.files || [];
   if (audioFile) {
     const form = new FormData();
-    form.append("engine", "musetalk");
+    form.append("engine", elements.avatarEngine.value);
     form.append("facePath", elements.avatarFacePath.value.trim());
     form.append("audio", audioFile);
     form.append("useFloat16", "true");
@@ -396,7 +398,7 @@ async function createAvatarJob(workerUrl) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      engine: "musetalk",
+      engine: elements.avatarEngine.value,
       facePath: elements.avatarFacePath.value.trim(),
       audioPath: elements.avatarAudioPath.value.trim(),
       useFloat16: true
@@ -615,7 +617,7 @@ function renderGeneratedAvatar(videoUrl) {
 
   const label = document.createElement("div");
   label.className = "media-label";
-  label.textContent = "musetalk / generated reply";
+  label.textContent = `${elements.avatarEngine.value} / generated reply`;
 
   wrapper.append(video, label);
   elements.remoteMedia.append(wrapper);

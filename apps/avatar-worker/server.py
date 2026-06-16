@@ -202,8 +202,8 @@ class AvatarWorkerHandler(BaseHTTPRequestHandler):
 
 def create_lipsync_job(body: dict) -> dict:
     engine = body.get("engine", "musetalk")
-    if engine != "musetalk":
-        raise ValueError("Only musetalk is wired for the worker endpoint.")
+    if engine not in {"musetalk", "wav2lip"}:
+        raise ValueError("Only musetalk and wav2lip are wired for the worker endpoint.")
 
     face_path = sanitize_relative_path(body.get("facePath") or DEFAULT_FACE)
     audio_path = sanitize_relative_path(body.get("audioPath") or DEFAULT_AUDIO)
@@ -286,33 +286,51 @@ def run_lipsync_job(job_id: str) -> None:
     update_job(job_id, {"status": "running", "startedAt": datetime.now(timezone.utc).isoformat()})
 
     started = time.perf_counter()
-    command = [
-        sys.executable,
-        str(ROOT / "apps" / "avatar-worker" / "benchmark_lipsync.py"),
-        "--engine",
-        "musetalk",
-        "--face",
-        job["input"]["facePath"],
-        "--audio",
-        job["input"]["audioPath"],
-        "--out-dir",
-        str(out_dir),
-        "--musetalk-batch-size",
-        str(job["input"]["batchSize"]),
-        "--musetalk-bbox-shift",
-        str(job["input"]["bboxShift"]),
-    ]
-    if job["input"].get("avatarId"):
-        command.extend([
-            "--musetalk-inference-mode",
-            "realtime",
-            "--musetalk-avatar-id",
-            str(job["input"]["avatarId"]),
-        ])
-        if job.get("type") == "avatar.prepare":
-            command.append("--musetalk-realtime-preparation")
-    if job["input"]["useFloat16"]:
-        command.append("--musetalk-use-float16")
+    if job["engine"] == "wav2lip":
+        python_bin = os.environ.get(
+            "WAV2LIP_PYTHON",
+            str(ROOT / "models" / "wav2lip" / "repos" / "Wav2Lip" / ".venv" / "bin" / "python"),
+        )
+        command = [
+            python_bin,
+            str(ROOT / "apps" / "avatar-worker" / "benchmark_lipsync.py"),
+            "--engine",
+            "wav2lip",
+            "--face",
+            job["input"]["facePath"],
+            "--audio",
+            job["input"]["audioPath"],
+            "--out-dir",
+            str(out_dir),
+        ]
+    else:
+        command = [
+            sys.executable,
+            str(ROOT / "apps" / "avatar-worker" / "benchmark_lipsync.py"),
+            "--engine",
+            "musetalk",
+            "--face",
+            job["input"]["facePath"],
+            "--audio",
+            job["input"]["audioPath"],
+            "--out-dir",
+            str(out_dir),
+            "--musetalk-batch-size",
+            str(job["input"]["batchSize"]),
+            "--musetalk-bbox-shift",
+            str(job["input"]["bboxShift"]),
+        ]
+        if job["input"].get("avatarId"):
+            command.extend([
+                "--musetalk-inference-mode",
+                "realtime",
+                "--musetalk-avatar-id",
+                str(job["input"]["avatarId"]),
+            ])
+            if job.get("type") == "avatar.prepare":
+                command.append("--musetalk-realtime-preparation")
+        if job["input"]["useFloat16"]:
+            command.append("--musetalk-use-float16")
 
     result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
     report = read_json_file(out_dir / "report.json")

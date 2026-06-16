@@ -288,6 +288,17 @@ Run the HTTP worker without Docker:
 scripts/avatar-worker-host-server.sh
 ```
 
+For the fastest turn-based call demo, use Wav2Lip with a still image:
+
+```sh
+ffmpeg -y -i models/assets/face-optimized.mp4 -frames:v 1 models/assets/face-still.jpg
+scripts/setup-wav2lip-host.sh
+scripts/avatar-worker-host-server.sh
+```
+
+Then select `Fast Wav2Lip` in the web UI and keep `Face source` as
+`models/assets/face-still.jpg`.
+
 The same SSH tunnel still applies:
 
 ```sh
