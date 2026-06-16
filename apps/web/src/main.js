@@ -341,7 +341,7 @@ async function askFutureSelfAvatar() {
     });
     const result = await response.json();
     if (!response.ok) {
-      throw new Error(result.error || JSON.stringify(result));
+      throw new Error(result.error ? JSON.stringify(result, null, 2) : JSON.stringify(result));
     }
 
     const job = result.workerJob;

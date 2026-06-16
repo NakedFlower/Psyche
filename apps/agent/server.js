@@ -61,6 +61,18 @@ const server = http.createServer(async (req, res) => {
 
     return sendJson(res, 404, { error: "Not found" });
   } catch (error) {
+    console.error(
+      JSON.stringify(
+        {
+          at: new Date().toISOString(),
+          event: "request.error",
+          message: error.message,
+          stack: error.stack
+        },
+        null,
+        2
+      )
+    );
     return sendJson(res, 500, {
       error: "Internal server error",
       message: error.message
