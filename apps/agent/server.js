@@ -270,11 +270,11 @@ async function createAvatarReply(req, res) {
 }
 
 async function createFutureImage(req, res) {
-  const apiKey = process.env.OPENAI_IMAGE_API_KEY || process.env.OPENAI_API_KEY;
-  if (!apiKey) {
+  const imageConfig = getFutureImageConfig();
+  if (imageConfig.missing.length) {
     return sendJson(res, 400, {
-      error: "Missing OpenAI image API key",
-      missing: ["OPENAI_IMAGE_API_KEY or OPENAI_API_KEY"]
+      error: "Missing image generation configuration",
+      missing: imageConfig.missing
     });
   }
 
@@ -302,16 +302,14 @@ async function createFutureImage(req, res) {
   ].join(" ");
 
   const imageForm = new FormData();
-  imageForm.append("model", process.env.OPENAI_IMAGE_MODEL || "gpt-image-1");
+  imageForm.append("model", imageConfig.model);
   imageForm.append("prompt", prompt);
-  imageForm.append("size", process.env.OPENAI_IMAGE_SIZE || "1024x1024");
+  imageForm.append("size", imageConfig.size);
   imageForm.append("image", new Blob([photo.data], { type: photo.contentType || "image/png" }), safeName);
 
-  const response = await fetch("https://api.openai.com/v1/images/edits", {
+  const response = await fetch(imageConfig.url, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`
-    },
+    headers: imageConfig.headers,
     body: imageForm
   });
   const result = await readFetchResponse(response);
@@ -339,11 +337,85 @@ async function createFutureImage(req, res) {
     inputFile: path.relative(rootDir, inputPath),
     outputFile: path.relative(rootDir, outputPath),
     imageUrl: `/${path.relative(rootDir, outputPath).replaceAll(path.sep, "/")}`,
-    provider: "openai",
-    model: process.env.OPENAI_IMAGE_MODEL || "gpt-image-1",
+    provider: imageConfig.provider,
+    model: imageConfig.model,
     targetYears,
     style
   });
+}
+
+function getFutureImageConfig() {
+  const provider = String(process.env.IMAGE_PROVIDER || process.env.OPENAI_IMAGE_PROVIDER || "").toLowerCase();
+  const useAzure =
+    provider === "azure" ||
+    Boolean(process.env.AZURE_OPENAI_IMAGE_DEPLOYMENT || process.env.AZURE_OPENAI_IMAGE_ENDPOINT);
+
+  if (useAzure) {
+    const endpoint = normalizeAzureOpenAIEndpoint(
+      process.env.AZURE_OPENAI_IMAGE_ENDPOINT ||
+        process.env.AZURE_OPENAI_ENDPOINT ||
+        process.env.AZURE_OPENAI_RESPONSES_URL ||
+        ""
+    );
+    const deployment =
+      process.env.AZURE_OPENAI_IMAGE_DEPLOYMENT ||
+      process.env.AZURE_OPENAI_IMAGE_MODEL ||
+      "gpt-image-2";
+    const apiVersion =
+      process.env.AZURE_OPENAI_IMAGE_API_VERSION ||
+      process.env.AZURE_OPENAI_API_VERSION ||
+      "preview";
+    const url = endpoint.includes("/images/edits")
+      ? endpoint
+      : endpoint.includes("/images/generations")
+        ? endpoint.replace("/images/generations", "/images/edits")
+        : endpoint.includes("/openai/v1")
+      ? `${endpoint.replace(/\/+$/, "")}/images/edits`
+      : `${endpoint.replace(/\/+$/, "")}/openai/deployments/${encodeURIComponent(
+          deployment
+        )}/images/edits?api-version=${encodeURIComponent(apiVersion)}`;
+    const apiKey = process.env.AZURE_OPENAI_IMAGE_API_KEY || process.env.AZURE_OPENAI_API_KEY;
+    const bearerToken = process.env.AZURE_OPENAI_IMAGE_BEARER_TOKEN;
+
+    return {
+      provider: "azure",
+      url,
+      apiKey,
+      bearerToken,
+      missing: [
+        !endpoint && "AZURE_OPENAI_IMAGE_ENDPOINT or AZURE_OPENAI_ENDPOINT",
+        !deployment && "AZURE_OPENAI_IMAGE_DEPLOYMENT",
+        !apiKey && !bearerToken && "AZURE_OPENAI_IMAGE_API_KEY or AZURE_OPENAI_API_KEY"
+      ].filter(Boolean),
+      model: deployment,
+      size: process.env.AZURE_OPENAI_IMAGE_SIZE || process.env.OPENAI_IMAGE_SIZE || "1024x1024",
+      headers: bearerToken ? { Authorization: `Bearer ${bearerToken}` } : { "api-key": apiKey }
+    };
+  }
+
+  const apiKey = process.env.OPENAI_IMAGE_API_KEY || process.env.OPENAI_API_KEY;
+  return {
+    provider: "openai",
+    url: "https://api.openai.com/v1/images/edits",
+    apiKey,
+    bearerToken: "",
+    missing: [!apiKey && "OPENAI_IMAGE_API_KEY or OPENAI_API_KEY"].filter(Boolean),
+    model: process.env.OPENAI_IMAGE_MODEL || "gpt-image-1",
+    size: process.env.OPENAI_IMAGE_SIZE || "1024x1024",
+    headers: { Authorization: `Bearer ${apiKey}` }
+  };
+}
+
+function normalizeAzureOpenAIEndpoint(value) {
+  const endpoint = String(value || "").trim();
+  if (!endpoint) return "";
+  if (endpoint.endsWith("/responses")) {
+    return endpoint.slice(0, -"/responses".length);
+  }
+  if (endpoint.includes("/images/edits") || endpoint.includes("/images/generations")) {
+    return endpoint;
+  }
+  return endpoint;
 }
 
 function signLiveKitJwt({ apiKey, apiSecret, identity, name, grants, ttlSeconds }) {

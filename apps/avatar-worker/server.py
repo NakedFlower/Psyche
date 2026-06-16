@@ -27,6 +27,7 @@ RUNS_DIR = ROOT / "runs"
 DEFAULT_FACE = "models/assets/face.mp4"
 DEFAULT_AUDIO = "models/assets/speech-clean.wav"
 UPLOADS_DIR = RUNS_DIR / "lipsync" / "uploads"
+FACE_UPLOADS_DIR = RUNS_DIR / "lipsync" / "face-uploads"
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
 
@@ -46,7 +47,7 @@ class AvatarWorkerHandler(BaseHTTPRequestHandler):
                 {
                     "status": "ok",
                     "service": "psyche-avatar-worker",
-                    "engines": ["musetalk", "wav2lip"],
+                    "engines": ["musetalk", "wav2lip", "mouth-puppet"],
                     "root": str(ROOT),
                     "jobs": len(JOBS),
                 }
@@ -168,6 +169,9 @@ class AvatarWorkerHandler(BaseHTTPRequestHandler):
             if key == "audio" and getattr(field, "filename", None):
                 body["audioPath"] = save_uploaded_audio(field)
                 body["uploadedAudioName"] = field.filename
+            elif key == "face" and getattr(field, "filename", None):
+                body["facePath"] = save_uploaded_face(field)
+                body["uploadedFaceName"] = field.filename
             elif getattr(field, "value", None) is not None:
                 body[key] = field.value
         return body
@@ -202,8 +206,8 @@ class AvatarWorkerHandler(BaseHTTPRequestHandler):
 
 def create_lipsync_job(body: dict) -> dict:
     engine = body.get("engine", "musetalk")
-    if engine not in {"musetalk", "wav2lip"}:
-        raise ValueError("Only musetalk and wav2lip are wired for the worker endpoint.")
+    if engine not in {"musetalk", "wav2lip", "mouth-puppet"}:
+        raise ValueError("Only musetalk, wav2lip, and mouth-puppet are wired for the worker endpoint.")
 
     face_path = sanitize_relative_path(body.get("facePath") or DEFAULT_FACE)
     audio_path = sanitize_relative_path(body.get("audioPath") or DEFAULT_AUDIO)
@@ -227,6 +231,7 @@ def create_lipsync_job(body: dict) -> dict:
             "audioPath": audio_path,
             "avatarId": avatar_id,
             "uploadedAudioName": body.get("uploadedAudioName"),
+            "uploadedFaceName": body.get("uploadedFaceName"),
             "batchSize": batch_size,
             "bboxShift": bbox_shift,
             "useFloat16": use_float16,
@@ -296,6 +301,17 @@ def run_lipsync_job(job_id: str) -> None:
             str(ROOT / "apps" / "avatar-worker" / "benchmark_lipsync.py"),
             "--engine",
             "wav2lip",
+            "--face",
+            job["input"]["facePath"],
+            "--audio",
+            job["input"]["audioPath"],
+            "--out-dir",
+            str(out_dir),
+        ]
+    elif job["engine"] == "mouth-puppet":
+        command = [
+            sys.executable,
+            str(ROOT / "apps" / "avatar-worker" / "mouth_puppet.py"),
             "--face",
             job["input"]["facePath"],
             "--audio",
@@ -403,6 +419,25 @@ def save_uploaded_audio(field) -> str:
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     upload_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     target = UPLOADS_DIR / f"{upload_id}-{filename}"
+    with target.open("wb") as file:
+        while True:
+            chunk = field.file.read(1024 * 1024)
+            if not chunk:
+                break
+            file.write(chunk)
+    return str(target.relative_to(ROOT))
+
+
+def save_uploaded_face(field) -> str:
+    source_name = Path(field.filename or "face.png")
+    suffix = source_name.suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".mp4", ".mov"}:
+        raise ValueError("Face upload must be png, jpg, jpeg, webp, bmp, mp4, or mov.")
+
+    filename = f"{safe_slug(source_name.stem) or 'face'}{suffix}"
+    FACE_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    upload_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    target = FACE_UPLOADS_DIR / f"{upload_id}-{filename}"
     with target.open("wb") as file:
         while True:
             chunk = field.file.read(1024 * 1024)

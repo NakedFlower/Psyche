@@ -411,6 +411,7 @@ async function askFutureSelfAvatar() {
   appendEvent("avatar", "Asking future self");
 
   try {
+    const facePayload = await buildFacePayloadForReply();
     const response = await fetch("/api/avatar/reply", {
       method: "POST",
       headers: {
@@ -420,7 +421,8 @@ async function askFutureSelfAvatar() {
         question,
         workerUrl,
         engine: elements.avatarEngine.value,
-        facePath: elements.avatarFacePath.value.trim()
+        facePath: elements.avatarFacePath.value.trim(),
+        ...facePayload
       })
     }).catch((error) => {
       throw new Error(`Local avatar server request failed: ${error.message}`);
@@ -464,11 +466,20 @@ async function askFutureSelfAvatar() {
 
 async function createAvatarJob(workerUrl) {
   const [audioFile] = elements.avatarAudioFile.files || [];
-  if (audioFile) {
+  const uploadedFace = await resolveSelectedFaceUpload();
+  if (audioFile || uploadedFace) {
     const form = new FormData();
     form.append("engine", elements.avatarEngine.value);
-    form.append("facePath", elements.avatarFacePath.value.trim());
-    form.append("audio", audioFile);
+    if (uploadedFace) {
+      form.append("face", uploadedFace.blob, uploadedFace.filename);
+    } else {
+      form.append("facePath", elements.avatarFacePath.value.trim());
+    }
+    if (audioFile) {
+      form.append("audio", audioFile);
+    } else {
+      form.append("audioPath", elements.avatarAudioPath.value.trim());
+    }
     form.append("useFloat16", "true");
     return fetch(`${workerUrl}/v1/lipsync/jobs`, {
       method: "POST",
@@ -488,6 +499,35 @@ async function createAvatarJob(workerUrl) {
       useFloat16: true
     })
   });
+}
+
+async function resolveSelectedFaceUpload() {
+  if (!state.defaultAvatarUrl) return null;
+
+  try {
+    const response = await fetch(state.defaultAvatarUrl);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    const extension = inferExtension(blob.type || "", state.defaultAvatarUrl);
+    return {
+      blob,
+      filename: `future-face.${extension}`
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function buildFacePayloadForReply() {
+  const uploadedFace = await resolveSelectedFaceUpload();
+  if (!uploadedFace) {
+    return {};
+  }
+
+  return {
+    faceUploadName: uploadedFace.filename,
+    faceDataUrl: await blobToDataUrl(uploadedFace.blob)
+  };
 }
 
 async function pollAvatarJob(workerUrl, jobId, options = {}) {
@@ -780,6 +820,16 @@ function normalizeBaseUrl(value) {
   return String(value || "http://localhost:8080").trim().replace(/\/+$/, "");
 }
 
+function inferExtension(contentType, sourceUrl) {
+  if (contentType.includes("png")) return "png";
+  if (contentType.includes("jpeg") || contentType.includes("jpg")) return "jpg";
+  if (contentType.includes("webp")) return "webp";
+  const clean = String(sourceUrl || "").split("?")[0];
+  const ext = clean.split(".").pop()?.toLowerCase();
+  if (ext && ["png", "jpg", "jpeg", "webp", "bmp"].includes(ext)) return ext === "jpeg" ? "jpg" : ext;
+  return "png";
+}
+
 function updateConnectionState(connectionState) {
   elements.connectionState.textContent = connectionState;
   elements.connectionState.dataset.state = connectionState;
@@ -845,6 +895,15 @@ function setBusy(isBusy) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Failed to read face image"));
+    reader.readAsDataURL(blob);
+  });
 }
 
 function escapeHtml(value) {

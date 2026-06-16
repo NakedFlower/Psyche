@@ -24,6 +24,8 @@ export async function buildAvatarReplyJob({
   const workerUrl = String(body.workerUrl || env.AVATAR_WORKER_URL || "http://127.0.0.1:8080").replace(/\/+$/, "");
   const engine = String(body.engine || env.AVATAR_LIPSYNC_ENGINE || "wav2lip").trim();
   const facePath = String(body.facePath || env.AVATAR_FACE_PATH || "models/assets/face-still.jpg").trim();
+  const faceUploadName = String(body.faceUploadName || "future-face.png").trim() || "future-face.png";
+  const faceBuffer = decodeDataUrl(body.faceDataUrl);
   const persona = loadPersonaForReply({ rootDir, env, personaFile: body.personaFile });
 
   const reply = await runStage("azure.reply", () => chatWithAzureOpenAI({
@@ -70,7 +72,11 @@ export async function buildAvatarReplyJob({
 
   const form = new FormData();
   form.append("engine", engine);
-  form.append("facePath", facePath);
+  if (faceBuffer) {
+    form.append("face", new Blob([faceBuffer], { type: detectImageContentType(faceUploadName) }), faceUploadName);
+  } else {
+    form.append("facePath", facePath);
+  }
   form.append("useFloat16", "true");
   form.append("audio", new Blob([audio], { type: "audio/mpeg" }), path.basename(audioFile));
 
@@ -96,7 +102,7 @@ export async function buildAvatarReplyJob({
       replyText,
       audioFile: path.relative(rootDir, audioFile),
       engine,
-      facePath,
+      facePath: faceBuffer ? faceUploadName : facePath,
       workerUrl,
       workerJob,
       azure: {
@@ -105,6 +111,21 @@ export async function buildAvatarReplyJob({
       }
     }
   };
+}
+
+function decodeDataUrl(value) {
+  const source = String(value || "");
+  const match = source.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  return Buffer.from(match[2], "base64");
+}
+
+function detectImageContentType(filename) {
+  const lower = String(filename || "").toLowerCase();
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".bmp")) return "image/bmp";
+  return "image/png";
 }
 
 function loadPersonaForReply({ rootDir, env, personaFile }) {
