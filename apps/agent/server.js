@@ -64,6 +64,14 @@ const server = http.createServer(async (req, res) => {
       return await createAvatarReply(req, res);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/session/prepare") {
+      return await savePreparedSession(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/session/prepare") {
+      return await readPreparedSession(req, res, url);
+    }
+
     if (req.method === "GET" && url.pathname.startsWith("/runs/")) {
       return serveRunArtifact(url.pathname, res, req.method === "HEAD");
     }
@@ -191,6 +199,59 @@ async function createPersona(req, res) {
   });
 }
 
+async function savePreparedSession(req, res) {
+  const body = await readJson(req);
+  const roomName = cleanRoomName(body.roomName || defaultRoom);
+  const session = {
+    roomName,
+    identity: cleanIdentity(body.identity || ""),
+    personaFile: sanitizeWorkspaceRelativeFile(body.personaFile),
+    realtimeInstructions: String(body.realtimeInstructions || "").trim(),
+    firstGreeting: String(body.firstGreeting || "").trim(),
+    displayName: String(body.displayName || "").trim(),
+    voiceId: String(body.voiceId || "").trim(),
+    voiceName: String(body.voiceName || "").trim(),
+    voiceGender: String(body.voiceGender || "").trim(),
+    futureImageUrl: String(body.futureImageUrl || "").trim(),
+    futureImageFile: sanitizeWorkspaceRelativeFile(body.futureImageFile),
+    idleLoopUrl: String(body.idleLoopUrl || "").trim(),
+    speakingLoopUrl: String(body.speakingLoopUrl || "").trim(),
+    avatarAudioPath: String(body.avatarAudioPath || "").trim(),
+    updatedAt: new Date().toISOString()
+  };
+
+  const sessionFile = getPreparedSessionFile(roomName);
+  fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
+  fs.writeFileSync(sessionFile, JSON.stringify(session, null, 2) + "\n", "utf8");
+
+  return sendJson(res, 200, {
+    ok: true,
+    roomName,
+    sessionFile: path.relative(rootDir, sessionFile),
+    updatedAt: session.updatedAt,
+    session
+  });
+}
+
+async function readPreparedSession(req, res, url) {
+  const roomName = cleanRoomName(url.searchParams.get("roomName") || defaultRoom);
+  const sessionFile = getPreparedSessionFile(roomName);
+  if (!fs.existsSync(sessionFile)) {
+    return sendJson(res, 404, {
+      error: "Prepared session not found",
+      roomName
+    });
+  }
+
+  const session = JSON.parse(fs.readFileSync(sessionFile, "utf8"));
+  return sendJson(res, 200, {
+    ok: true,
+    roomName,
+    sessionFile: path.relative(rootDir, sessionFile),
+    session
+  });
+}
+
 async function cloneVoice(req, res) {
   if (!process.env.ELEVENLABS_API_KEY) {
     return sendJson(res, 400, {
@@ -223,6 +284,44 @@ async function cloneVoice(req, res) {
   const description = String(
     form.fields.description || "Psyche user-owned voice clone for future-self avatar R&D."
   ).slice(0, 500);
+  const preferExistingVoice = wantsExistingElevenLabsVoice();
+
+  if (preferExistingVoice) {
+    const reused = await resolvePreferredElevenLabsVoice({
+      apiKey: process.env.ELEVENLABS_API_KEY,
+      requestedName: voiceName
+    });
+    if (reused) {
+      const record = {
+        provider: "elevenlabs",
+        createdAt: new Date().toISOString(),
+        name: reused.name,
+        description,
+        gender,
+        voiceId: reused.voiceId,
+        reusedExisting: true,
+        reuseReason: reused.reason,
+        requiresVerification: false,
+        sampleFile: samplePath,
+        audioDurationSec,
+        lipSyncSampleFile: lipSyncSample.outputPath,
+        lipSyncSampleStartSec: lipSyncSample.startSec,
+        lipSyncSampleDurationSec: lipSyncSample.durationSec
+      };
+      const output = path.resolve(rootDir, "runs/voices", `elevenlabs-${Date.now()}.json`);
+      fs.mkdirSync(path.dirname(output), { recursive: true });
+      fs.writeFileSync(output, JSON.stringify(record, null, 2) + "\n", "utf8");
+
+      return sendJson(res, 200, {
+        ok: true,
+        output,
+        voiceFile: path.relative(rootDir, output),
+        ...record,
+        sampleFile: path.relative(rootDir, samplePath),
+        lipSyncSampleFile: path.relative(rootDir, lipSyncSample.outputPath)
+      });
+    }
+  }
 
   const elevenForm = new FormData();
   elevenForm.append("name", voiceName);
@@ -241,6 +340,42 @@ async function cloneVoice(req, res) {
   const result = await readFetchResponse(response);
 
   if (!response.ok) {
+    const reused = await maybeReuseElevenLabsVoice({
+      responseStatus: response.status,
+      result,
+      apiKey: process.env.ELEVENLABS_API_KEY,
+      requestedName: voiceName
+    });
+    if (reused) {
+      const record = {
+        provider: "elevenlabs",
+        createdAt: new Date().toISOString(),
+        name: reused.name,
+        description,
+        gender,
+        voiceId: reused.voiceId,
+        reusedExisting: true,
+        reuseReason: reused.reason,
+        requiresVerification: false,
+        sampleFile: samplePath,
+        audioDurationSec,
+        lipSyncSampleFile: lipSyncSample.outputPath,
+        lipSyncSampleStartSec: lipSyncSample.startSec,
+        lipSyncSampleDurationSec: lipSyncSample.durationSec
+      };
+      const output = path.resolve(rootDir, "runs/voices", `elevenlabs-${Date.now()}.json`);
+      fs.mkdirSync(path.dirname(output), { recursive: true });
+      fs.writeFileSync(output, JSON.stringify(record, null, 2) + "\n", "utf8");
+
+      return sendJson(res, 200, {
+        ok: true,
+        output,
+        voiceFile: path.relative(rootDir, output),
+        ...record,
+        sampleFile: path.relative(rootDir, samplePath),
+        lipSyncSampleFile: path.relative(rootDir, lipSyncSample.outputPath)
+      });
+    }
     return sendJson(res, response.status, {
       error: "ElevenLabs voice clone failed",
       details: result
@@ -291,6 +426,111 @@ async function probeAudioDuration(filePath) {
   } catch {
     return null;
   }
+}
+
+async function maybeReuseElevenLabsVoice({ responseStatus, result, apiKey, requestedName }) {
+  const code = result?.detail?.code || result?.detail?.status || result?.detail?.type || "";
+  if (!(responseStatus === 400 && String(code).includes("voice_limit_reached"))) {
+    return null;
+  }
+
+  return resolvePreferredElevenLabsVoice({
+    apiKey,
+    requestedName,
+    fallbackReasonPrefix: "voice_limit_reached"
+  });
+}
+
+async function listElevenLabsVoices(apiKey) {
+  const response = await fetch("https://api.elevenlabs.io/v1/voices", {
+    headers: {
+      "xi-api-key": apiKey
+    }
+  });
+  const result = await readFetchResponse(response);
+  if (!response.ok) {
+    throw new Error(`ElevenLabs voices list failed (${response.status}): ${stringifyBody(result)}`);
+  }
+  return Array.isArray(result?.voices) ? result.voices : [];
+}
+
+function normalizeVoiceName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getPreparedSessionFile(roomName) {
+  const safeRoom = cleanRoomName(roomName || defaultRoom);
+  return path.resolve(rootDir, "runs/prepared-sessions", `${safeRoom}.json`);
+}
+
+function sanitizeWorkspaceRelativeFile(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const resolved = path.resolve(rootDir, text);
+  if (!resolved.startsWith(rootDir)) return "";
+  return path.relative(rootDir, resolved);
+}
+
+function wantsExistingElevenLabsVoice() {
+  const raw = String(process.env.ELEVENLABS_REUSE_EXISTING || "").trim().toLowerCase();
+  if (!raw) {
+    return Boolean(String(process.env.ELEVENLABS_VOICE_ID || "").trim());
+  }
+  return !["0", "false", "no", "off"].includes(raw);
+}
+
+async function resolvePreferredElevenLabsVoice({
+  apiKey,
+  requestedName,
+  fallbackReasonPrefix = "preferred_reuse"
+}) {
+  const configuredVoiceId = String(process.env.ELEVENLABS_VOICE_ID || "").trim();
+  if (configuredVoiceId) {
+    return {
+      voiceId: configuredVoiceId,
+      name: process.env.ELEVENLABS_VOICE_NAME || requestedName || "Configured ElevenLabs voice",
+      reason: `${fallbackReasonPrefix}_env_voice`
+    };
+  }
+
+  const voices = await listElevenLabsVoices(apiKey);
+  const normalizedName = normalizeVoiceName(requestedName);
+  const exactMatch = voices.find((voice) => normalizeVoiceName(voice.name) === normalizedName);
+  if (exactMatch) {
+    return {
+      voiceId: exactMatch.voice_id,
+      name: exactMatch.name,
+      reason: `${fallbackReasonPrefix}_name_match`
+    };
+  }
+
+  const psycheMatch = voices.find((voice) => {
+    const labels = voice.labels || {};
+    return labels.app === "psyche" || normalizeVoiceName(voice.name).includes("psyche");
+  });
+  if (psycheMatch) {
+    return {
+      voiceId: psycheMatch.voice_id,
+      name: psycheMatch.name,
+      reason: `${fallbackReasonPrefix}_psyche_voice`
+    };
+  }
+
+  const customVoice = voices.find((voice) =>
+    ["cloned", "generated", "professional"].includes(String(voice.category || "").toLowerCase())
+  );
+  if (customVoice) {
+    return {
+      voiceId: customVoice.voice_id,
+      name: customVoice.name,
+      reason: `${fallbackReasonPrefix}_existing_custom_voice`
+    };
+  }
+
+  return null;
 }
 
 async function createLipSyncSeedClip({ inputPath, outputDir, preferredDurationSec, totalDurationSec }) {
@@ -892,6 +1132,10 @@ async function readFetchResponse(response) {
     return response.json();
   }
   return response.text();
+}
+
+function stringifyBody(body) {
+  return typeof body === "string" ? body : JSON.stringify(body);
 }
 
 function sendJson(res, status, payload) {

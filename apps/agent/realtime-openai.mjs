@@ -42,44 +42,13 @@ export async function createOpenAIRealtimeAudioPump({
   const inputBuffers = [];
   let outputText = "";
   let outputTranscript = "";
+  let currentInstructions = instructions;
+  let currentPrompt = prompt;
+  let currentVoice = voice;
 
   addSocketListener(ws, "open", () => {
     log("openai.realtime.connected", { provider, model: modelLabel, voice: voiceLabel });
-    send({
-      type: "session.update",
-      session: {
-        type: "realtime",
-        instructions,
-        output_modalities: [outputMode],
-        audio: {
-          input: {
-            format: {
-              type: "audio/pcm",
-              rate: 24000
-            }
-          }
-        },
-        ...(outputMode === "audio"
-          ? {
-              audio: {
-                input: {
-                  format: {
-                    type: "audio/pcm",
-                    rate: 24000
-                  }
-                },
-                output: {
-                  format: {
-                    type: "audio/pcm",
-                    rate: 24000
-                  },
-                  voice
-                }
-              }
-            }
-          : {})
-      }
-    });
+    send(buildSessionUpdateEvent());
   });
 
   addSocketListener(ws, "message", (event) => {
@@ -297,6 +266,12 @@ export async function createOpenAIRealtimeAudioPump({
       closed = true;
       resolveResponseDoneWaiters(null);
       ws.close();
+    },
+    updateSession({ instructions: nextInstructions, prompt: nextPrompt, voice: nextVoice } = {}) {
+      if (typeof nextInstructions === "string") currentInstructions = nextInstructions;
+      if (typeof nextPrompt === "string") currentPrompt = nextPrompt;
+      if (nextVoice !== undefined) currentVoice = nextVoice;
+      send(buildSessionUpdateEvent());
     }
   };
 
@@ -307,7 +282,7 @@ export async function createOpenAIRealtimeAudioPump({
     responseInFlight = true;
     const response = {
       output_modalities: [outputMode],
-      instructions: reason === "greeting" ? prompt : undefined
+      instructions: reason === "greeting" ? currentPrompt : undefined
     };
 
     if (outputMode === "audio") {
@@ -317,7 +292,7 @@ export async function createOpenAIRealtimeAudioPump({
             type: "audio/pcm",
             rate: 24000
           },
-          voice
+          voice: currentVoice
         }
       };
     }
@@ -334,6 +309,36 @@ export async function createOpenAIRealtimeAudioPump({
     for (const waiter of waiters) {
       waiter(event);
     }
+  }
+
+  function buildSessionUpdateEvent() {
+    return {
+      type: "session.update",
+      session: {
+        type: "realtime",
+        instructions: currentInstructions,
+        output_modalities: [outputMode],
+        audio: {
+          input: {
+            format: {
+              type: "audio/pcm",
+              rate: 24000
+            }
+          },
+          ...(outputMode === "audio"
+            ? {
+                output: {
+                  format: {
+                    type: "audio/pcm",
+                    rate: 24000
+                  },
+                  voice: currentVoice
+                }
+              }
+            : {})
+        }
+      }
+    };
   }
 }
 

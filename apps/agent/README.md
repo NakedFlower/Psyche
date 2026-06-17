@@ -54,6 +54,8 @@ AVATAR_LAB_TOKEN_TTL_SECONDS=3600
 OPENAI_API_KEY=
 ELEVENLABS_API_KEY=
 ELEVENLABS_VOICE_ID=
+ELEVENLABS_VOICE_NAME=
+ELEVENLABS_REUSE_EXISTING=true
 ELEVENLABS_MODEL_ID=eleven_multilingual_v2
 ELEVENLABS_LIVEKIT_OUTPUT_FORMAT=pcm_24000
 AVATAR_PERSONA_FILE=
@@ -364,6 +366,19 @@ node apps/agent/elevenlabs-voice.mjs synthesize \
 
 Keep `ELEVENLABS_API_KEY` only in `.env`. Do not commit generated voice records
 or audio samples under `runs/`.
+
+If you want the most stable test setup, keep one approved custom voice and
+reuse it instead of creating a new clone for every user. Put this in `.env`:
+
+```sh
+ELEVENLABS_VOICE_ID=<existing_voice_id>
+ELEVENLABS_VOICE_NAME=Psyche Test Voice
+ELEVENLABS_REUSE_EXISTING=true
+```
+
+Then the prepare flow will still accept a new uploaded sample for lip-sync seed
+generation, but it will skip creating a new ElevenLabs custom voice and reuse
+the configured one.
 
 ### ElevenLabs LiveKit Agent Mode
 

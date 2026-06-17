@@ -12,7 +12,7 @@ const API_BASE = "https://api.elevenlabs.io/v1";
 
 const command = process.argv[2];
 
-if (!command || !["clone", "synthesize", "list"].includes(command)) {
+if (!command || !["clone", "synthesize", "list", "delete"].includes(command)) {
   printUsage();
   process.exit(1);
 }
@@ -22,6 +22,8 @@ try {
     await cloneVoice();
   } else if (command === "list") {
     await listVoices();
+  } else if (command === "delete") {
+    await deleteVoice();
   } else {
     await synthesizeSpeech();
   }
@@ -171,6 +173,22 @@ async function synthesizeSpeech() {
   );
 }
 
+async function deleteVoice() {
+  const apiKey = requiredEnv("ELEVENLABS_API_KEY");
+  const voiceId = requiredArg("--voice-id");
+  const response = await fetch(`${API_BASE}/voices/${voiceId}`, {
+    method: "DELETE",
+    headers: {
+      "xi-api-key": apiKey
+    }
+  });
+  const body = await readResponse(response);
+  if (!response.ok) {
+    throw new Error(`ElevenLabs voice delete failed (${response.status}): ${stringifyBody(body)}`);
+  }
+  console.log(JSON.stringify({ status: "ok", deletedVoiceId: voiceId, result: body }, null, 2));
+}
+
 async function readResponse(response) {
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
@@ -237,6 +255,7 @@ function printUsage() {
     [
       "Usage:",
       "  node apps/agent/elevenlabs-voice.mjs list",
+      "  node apps/agent/elevenlabs-voice.mjs delete --voice-id <voice-id>",
       "  node apps/agent/elevenlabs-voice.mjs clone --sample <audio.wav> --name <voice-name> --confirm-consent [--output runs/voices/voice.json]",
       "  node apps/agent/elevenlabs-voice.mjs synthesize --voice-id <voice-id> --text <korean text> [--output runs/voices/sample.mp3]"
     ].join("\n")

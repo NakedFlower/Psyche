@@ -2,20 +2,25 @@ const API_BASE = "https://api.elevenlabs.io/v1";
 
 export function createElevenLabsLiveKitOutput({
   apiKey,
-  voiceId,
+  voiceId: initialVoiceId,
   modelId,
   outputFormat = "pcm_24000",
   audioSource,
   AudioFrame,
   log,
-  onOutputAudioLevel
+  onOutputAudioLevel,
+  onPlaybackStart
 }) {
   const sampleRate = parsePcmSampleRate(outputFormat);
   let generation = 0;
   let activeController = null;
+  let voiceId = initialVoiceId;
 
   return {
     async speak(text, metadata = {}) {
+      if (!voiceId) {
+        throw new Error("ElevenLabs voice id is not configured for this session yet.");
+      }
       const currentGeneration = generation;
       const controller = new AbortController();
       activeController = controller;
@@ -46,6 +51,12 @@ export function createElevenLabsLiveKitOutput({
         latencyMs: Math.round(performance.now() - started)
       });
 
+      onPlaybackStart?.({
+        voiceId,
+        bytes: pcm.byteLength,
+        latencyMs: Math.round(performance.now() - started)
+      });
+
       await writePcmToLiveKit({
         pcm,
         sampleRate,
@@ -67,6 +78,13 @@ export function createElevenLabsLiveKitOutput({
       activeController?.abort();
       activeController = null;
       log("elevenlabs.tts.cancelled", { reason });
+    },
+    setVoiceId(nextVoiceId) {
+      voiceId = String(nextVoiceId || "").trim();
+      log("elevenlabs.tts.voice_updated", { voiceId: voiceId || null });
+    },
+    getVoiceId() {
+      return voiceId;
     }
   };
 }

@@ -14,7 +14,8 @@
           <h1>Future Self Call</h1>
         </div>
         <form id="joinForm" class="call-controls">
-          <button id="joinButton" type="submit">Prepare & Join</button>
+          <button id="prepareButton" type="button">Prepare</button>
+          <button id="joinButton" type="button" disabled>Join</button>
           <button id="fullscreenButton" type="button">Fullscreen</button>
           <button id="leaveButton" type="button" disabled>Leave</button>
         </form>
@@ -151,7 +152,7 @@
 
         <section class="prep-status-card">
           <h2>Before Join</h2>
-          <div id="prepStatus" class="demo-status">Join을 누르면 페르소나 생성, 미래 얼굴 생성, 보이스 클론, speaking loop 준비, 방 입장을 순서대로 진행합니다.</div>
+          <div id="prepStatus" class="demo-status">Prepare를 누르면 페르소나 생성, 미래 얼굴 생성, 보이스 클론, loop 준비를 진행하고, Join으로 통화에 입장합니다.</div>
           <ol class="prep-checklist">
             <li id="prepPersonaStatus">1. Persona waiting</li>
             <li id="prepImageStatus">2. Future face + voice waiting</li>

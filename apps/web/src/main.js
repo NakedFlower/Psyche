@@ -2,6 +2,12 @@ import { Room, RoomEvent, Track } from "https://esm.sh/livekit-client@2?bundle";
 
 const state = {
   room: null,
+  prepared: false,
+  personaResult: null,
+  voiceResult: null,
+  futureImageResult: null,
+  idleLoopResult: null,
+  speakingLoopResult: null,
   remoteElements: new Map(),
   localElements: [],
   hiddenAudioElements: [],
@@ -19,6 +25,7 @@ const elements = {
   tokenEndpoint: document.getElementById("tokenEndpoint"),
   roomName: document.getElementById("roomName"),
   identity: document.getElementById("identity"),
+  prepareButton: document.getElementById("prepareButton"),
   joinButton: document.getElementById("joinButton"),
   fullscreenButton: document.getElementById("fullscreenButton"),
   leaveButton: document.getElementById("leaveButton"),
@@ -77,9 +84,16 @@ elements.identity.value = `browser-${Math.random().toString(16).slice(2, 8)}`;
 elements.futureImageYears.value = elements.targetYear.value;
 renderDefaultAvatar();
 
-elements.form.addEventListener("submit", async (event) => {
+elements.form.addEventListener("submit", (event) => {
   event.preventDefault();
-  await prepareAndJoinRoom();
+});
+
+elements.prepareButton.addEventListener("click", async () => {
+  await prepareFutureSelf();
+});
+
+elements.joinButton.addEventListener("click", async () => {
+  await joinPreparedRoom();
 });
 
 elements.leaveButton.addEventListener("click", async () => {
@@ -94,7 +108,9 @@ document.addEventListener("fullscreenchange", syncFullscreenUi);
 
 elements.targetYear.addEventListener("change", () => {
   elements.futureImageYears.value = elements.targetYear.value;
+  invalidatePreparation();
 });
+elements.roomName.addEventListener("input", invalidatePreparation);
 
 elements.personaForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -106,6 +122,26 @@ elements.futureImageForm.addEventListener("submit", async (event) => {
 });
 
 elements.futureImagePhoto.addEventListener("change", previewUploadedFutureImage);
+elements.voiceSample.addEventListener("change", invalidatePreparation);
+elements.voiceConsent.addEventListener("change", invalidatePreparation);
+elements.futureImageStyle.addEventListener("change", invalidatePreparation);
+
+for (const input of [
+  elements.surveyAge,
+  elements.surveyMbti,
+  elements.voiceGender,
+  elements.surveyValues,
+  elements.surveyGoals,
+  elements.surveyConcerns,
+  elements.surveyRoutine,
+  elements.surveyLongGame,
+  elements.weightIdeal,
+  elements.weightCareer,
+  elements.weightDirect
+]) {
+  input?.addEventListener("input", invalidatePreparation);
+  input?.addEventListener("change", invalidatePreparation);
+}
 
 elements.avatarDemoForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -128,7 +164,7 @@ async function joinRoom() {
     await leaveRoom();
   }
 
-  setBusy(true);
+  setJoinBusy(true);
   appendEvent("system", "Preparing call");
 
   try {
@@ -172,16 +208,18 @@ async function joinRoom() {
     appendEvent("error", error.message);
     await leaveRoom();
   } finally {
-    setBusy(false);
+    setJoinBusy(false);
   }
 }
 
-async function prepareAndJoinRoom() {
+async function prepareFutureSelf() {
   if (state.room) {
     return;
   }
 
-  setBusy(true, "Preparing...");
+  state.prepared = false;
+  elements.joinButton.disabled = true;
+  setPrepareBusy(true, "Preparing...");
   resetPrepChecklist();
   setPrepStatus("Preparing your future self...");
   let currentStep = elements.prepPersonaStatus;
@@ -208,17 +246,40 @@ async function prepareAndJoinRoom() {
     markPrepStep(currentStep, "done", "4. MuseTalk loop ready");
 
     currentStep = elements.prepJoinStatus;
-    markPrepStep(currentStep, "working", "5. Joining call...");
-    await joinRoom();
-    markPrepStep(currentStep, "done", "5. Call connected");
-    setPrepStatus("Ready. Your future self is in the room.");
+    markPrepStep(currentStep, "working", "5. Saving room session...");
+    await persistPreparedSession();
+
+    state.prepared = true;
+    elements.joinButton.disabled = false;
+    markPrepStep(elements.prepJoinStatus, "waiting", "5. Ready to join");
+    setPrepStatus("Preparation complete. Press Join to enter the call.");
   } catch (error) {
     markPrepStep(currentStep, "error", currentStep?.textContent?.replace("...", " failed") || "Step failed");
     setPrepStatus(`Preparation failed: ${error.message}`);
     appendEvent("error", error.message);
   } finally {
     if (!state.room) {
-      setBusy(false);
+      setPrepareBusy(false);
+    }
+  }
+}
+
+async function joinPreparedRoom() {
+  if (state.room) return;
+  if (!state.prepared) {
+    setPrepStatus("먼저 Prepare를 눌러 미래 자아 준비를 끝내줘.");
+    return;
+  }
+
+  markPrepStep(elements.prepJoinStatus, "working", "5. Joining call...");
+  setJoinBusy(true, "Joining...");
+  try {
+    await joinRoom();
+    markPrepStep(elements.prepJoinStatus, "done", "5. Call connected");
+    setPrepStatus("Ready. Your future self is in the room.");
+  } finally {
+    if (!state.room) {
+      setJoinBusy(false);
     }
   }
 }
@@ -256,6 +317,7 @@ async function leaveRoom() {
   state.localElements = [];
 
   elements.leaveButton.disabled = true;
+  elements.joinButton.disabled = !state.prepared;
   elements.remoteTrackCount.textContent = "waiting";
   updateConnectionState("disconnected");
 }
@@ -293,6 +355,7 @@ async function generatePersona(options = {}) {
       runWithPersona: `AVATAR_PERSONA_FILE=${result.personaFile} /opt/homebrew/bin/node apps/agent/room-agent.mjs`
     });
     state.personaFile = result.personaFile || "";
+    state.personaResult = result;
     if (!options.silent) appendEvent("persona", `Generated ${result.personaFile}`);
     return result;
   } catch (error) {
@@ -349,6 +412,8 @@ async function cloneVoiceFromUpload(options = {}) {
       setSetupOutput({
         type: "voice.cloned",
         voiceId: result.voiceId,
+        reusedExisting: Boolean(result.reusedExisting),
+        reuseReason: result.reuseReason || "",
         voiceFile: result.voiceFile,
         sampleFile: result.sampleFile,
         audioDurationSec: result.audioDurationSec,
@@ -356,20 +421,20 @@ async function cloneVoiceFromUpload(options = {}) {
         lipSyncSampleStartSec: result.lipSyncSampleStartSec,
         lipSyncSampleDurationSec: result.lipSyncSampleDurationSec,
         requiresVerification: result.requiresVerification,
-        env: [
-          `ELEVENLABS_VOICE_ID=${result.voiceId}`,
-          "AVATAR_AGENT_TTS_PROVIDER=elevenlabs",
-          "ELEVENLABS_LIVEKIT_OUTPUT_FORMAT=pcm_24000"
-        ],
-        runWithClonedVoice:
-          `ELEVENLABS_VOICE_ID=${result.voiceId} /opt/homebrew/bin/node apps/agent/room-agent.mjs`
+        sessionMode: "Prepare stores this voice for the current room. Join will use it automatically."
       });
     }
     if (result.lipSyncSampleFile) {
       elements.avatarAudioPath.value = result.lipSyncSampleFile;
     }
+    state.voiceResult = result;
     if (!options.silent) {
-      appendEvent("voice", `Cloned voice ${result.voiceId}`);
+      appendEvent(
+        "voice",
+        result.reusedExisting
+          ? `Reused voice ${result.voiceId}`
+          : `Cloned voice ${result.voiceId}`
+      );
     }
     return result;
   } catch (error) {
@@ -412,6 +477,7 @@ async function generateFutureImage(options = {}) {
     }
 
     state.defaultAvatarUrl = `${result.imageUrl}?t=${Date.now()}`;
+    state.futureImageResult = result;
     localStorage.setItem("psyche.futureAvatarUrl", state.defaultAvatarUrl);
     clearIdleLoop();
     clearSpeakingLoop();
@@ -515,6 +581,7 @@ async function generateSpeakingLoop(options = {}) {
     });
 
     state.speakingLoopUrl = `${workerUrl}${result.videoUrl}?t=${Date.now()}`;
+    state.speakingLoopResult = result;
     localStorage.setItem("psyche.speakingLoopUrl", state.speakingLoopUrl);
     renderDefaultAvatar();
     elements.avatarDemoStatus.textContent = "Speaking loop ready";
@@ -563,6 +630,7 @@ async function generateIdleLoop(options = {}) {
     });
 
     state.idleLoopUrl = `${workerUrl}${result.videoUrl}?t=${Date.now()}`;
+    state.idleLoopResult = result;
     localStorage.setItem("psyche.idleLoopUrl", state.idleLoopUrl);
     renderDefaultAvatar();
     elements.avatarDemoStatus.textContent = "Idle loop ready";
@@ -836,12 +904,17 @@ function bindRoomEvents(room) {
         elements.askAvatarStatus.textContent =
           `Avatar video ready in ${(decoded.latencyMs / 1000).toFixed(1)}s` +
           (decoded.clippedAudioSeconds ? ` (${decoded.clippedAudioSeconds}s audio)` : "");
-        setAvatarSpeaking(true, Math.max(1200, Number(decoded.clippedAudioSeconds || 3) * 1000));
+        if (!decoded.muted) {
+          setAvatarSpeaking(true, Math.max(1200, Number(decoded.clippedAudioSeconds || 3) * 1000));
+        }
       }
       if (decoded?.type === "agent.state") {
         const isSpeaking = decoded.state === "speaking";
         const isIdle = ["idle", "listening", "thinking", "avatar-error"].includes(decoded.state);
-        if (isSpeaking) setAvatarSpeaking(true);
+        const reason = String(decoded?.details?.reason || "");
+        const waitsForActualAudio =
+          reason === "elevenlabs-tts-start" || reason === "avatar.video.ready";
+        if (isSpeaking && !waitsForActualAudio) setAvatarSpeaking(true);
         if (isIdle) setAvatarSpeaking(false);
       }
       appendEvent(participant?.identity || "data", {
@@ -1136,10 +1209,55 @@ function markPrepStep(element, status, message) {
 
 function resetPrepChecklist() {
   markPrepStep(elements.prepPersonaStatus, "waiting", "1. Persona waiting");
-  markPrepStep(elements.prepImageStatus, "waiting", "2. Future face waiting");
+  markPrepStep(elements.prepImageStatus, "waiting", "2. Future face + voice waiting");
   markPrepStep(elements.prepIdleStatus, "waiting", "3. LivePortrait idle loop waiting");
   markPrepStep(elements.prepLoopStatus, "waiting", "4. MuseTalk loop waiting");
   markPrepStep(elements.prepJoinStatus, "waiting", "5. Room join waiting");
+}
+
+function invalidatePreparation() {
+  if (state.room) return;
+  state.prepared = false;
+  state.personaResult = null;
+  state.voiceResult = null;
+  state.futureImageResult = null;
+  state.idleLoopResult = null;
+  state.speakingLoopResult = null;
+  elements.joinButton.disabled = true;
+  markPrepStep(elements.prepJoinStatus, "waiting", "5. Room join waiting");
+}
+
+async function persistPreparedSession() {
+  const payload = {
+    roomName: elements.roomName.value.trim(),
+    identity: elements.identity.value.trim(),
+    personaFile: state.personaFile || "",
+    realtimeInstructions: state.personaResult?.realtimeInstructions || "",
+    firstGreeting: state.personaResult?.firstGreeting || "",
+    displayName: state.personaResult?.displayName || "",
+    voiceId: state.voiceResult?.voiceId || "",
+    voiceName: state.voiceResult?.name || "",
+    voiceGender: elements.voiceGender.value || "neutral",
+    futureImageUrl: state.defaultAvatarUrl || "",
+    futureImageFile: state.futureImageResult?.outputFile || "",
+    idleLoopUrl: state.idleLoopUrl || "",
+    speakingLoopUrl: state.speakingLoopUrl || "",
+    avatarAudioPath: elements.avatarAudioPath.value.trim()
+  };
+
+  const response = await fetch("/api/session/prepare", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(result.error || JSON.stringify(result));
+  }
+  appendEvent("session", `Prepared room session ${result.roomName}`);
+  return result;
 }
 
 function normalizeBaseUrl(value) {
@@ -1221,9 +1339,14 @@ function decodePayload(payload) {
   }
 }
 
-function setBusy(isBusy, label = null) {
+function setPrepareBusy(isBusy, label = null) {
+  elements.prepareButton.disabled = isBusy;
+  elements.prepareButton.textContent = isBusy ? label || "Preparing..." : "Prepare";
+}
+
+function setJoinBusy(isBusy, label = null) {
   elements.joinButton.disabled = isBusy;
-  elements.joinButton.textContent = isBusy ? label || "Joining..." : "Prepare & Join";
+  elements.joinButton.textContent = isBusy ? label || "Joining..." : "Join";
 }
 
 async function toggleCallFullscreen() {

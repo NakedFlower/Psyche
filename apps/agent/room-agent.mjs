@@ -8,14 +8,17 @@ const rootDir = path.resolve(__dirname, "../..");
 
 loadEnv(path.join(rootDir, ".env"));
 
-const personaConfig = await loadPersonaConfig(process.env.AVATAR_PERSONA_FILE);
 const { resolveVoiceProfile } = await import("./voice-profile.mjs");
-const voiceProfile = resolveVoiceProfile({ env: process.env, personaConfig });
+let currentPersonaConfig = await loadPersonaConfig(process.env.AVATAR_PERSONA_FILE);
+let currentVoiceProfile = resolveVoiceProfile({ env: process.env, personaConfig: currentPersonaConfig });
 
 const config = {
   livekitUrl: process.env.LIVEKIT_URL,
   apiKey: process.env.LIVEKIT_API_KEY,
   apiSecret: process.env.LIVEKIT_API_SECRET,
+  controlServerBaseUrl:
+    process.env.AVATAR_LAB_SERVER_URL ||
+    `http://${process.env.AVATAR_LAB_HOST || process.env.HOST || "127.0.0.1"}:${process.env.AVATAR_LAB_PORT || process.env.PORT || 5174}`,
   roomName: getCliValue("--room") || process.env.AVATAR_LAB_DEFAULT_ROOM || "psyche-avatar-lab",
   identity: getCliValue("--identity") || process.env.AVATAR_AGENT_IDENTITY || "psyche-node-agent",
   name: process.env.AVATAR_AGENT_NAME || "Psyche Node Agent",
@@ -37,8 +40,8 @@ const config = {
   azureOpenaiEndpoint: process.env.AZURE_OPENAI_ENDPOINT,
   azureOpenaiApiKey: process.env.AZURE_OPENAI_API_KEY,
   azureOpenaiDeployment: process.env.AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-realtime",
-  openaiVoice: voiceProfile.voice,
-  openaiVoiceLabel: voiceProfile.voiceLabel,
+  openaiVoice: currentVoiceProfile.voice,
+  openaiVoiceLabel: currentVoiceProfile.voiceLabel,
   ttsProvider: process.env.AVATAR_AGENT_TTS_PROVIDER || "openai",
   elevenLabsApiKey: process.env.ELEVENLABS_API_KEY,
   elevenLabsVoiceId: process.env.ELEVENLABS_VOICE_ID,
@@ -51,15 +54,15 @@ const config = {
   videoReplySuppressRealtimeAudio: process.env.AVATAR_AGENT_VIDEO_REPLY_SUPPRESS_REALTIME_AUDIO !== "false",
   videoReplyPlayElevenLabsOnReady: process.env.AVATAR_AGENT_VIDEO_REPLY_PLAY_ELEVENLABS !== "false",
   videoReplyMaxAudioSeconds: Number(process.env.AVATAR_AGENT_VIDEO_REPLY_MAX_AUDIO_SECONDS || 4),
-  voiceProfile,
+  voiceProfile: currentVoiceProfile,
   openaiInstructions:
-    personaConfig?.realtimeInstructions ||
+    currentPersonaConfig?.realtimeInstructions ||
     process.env.OPENAI_REALTIME_INSTRUCTIONS ||
     "You are Psyche's future-self voice agent. Speak warmly and concisely in Korean unless the user asks otherwise.",
   openaiGreeting:
     process.env.AVATAR_AGENT_GREETING_ENABLED === "true"
       ? process.env.OPENAI_REALTIME_GREETING ||
-        personaConfig?.firstGreeting ||
+        currentPersonaConfig?.firstGreeting ||
         "짧게 한국어로 인사하고, 지금은 Psyche 실시간 아바타 에이전트 연결 테스트 중이라고 말해줘."
       : "",
   fps: Number(process.env.AVATAR_AGENT_FPS || 10),
@@ -70,6 +73,17 @@ const config = {
   mockAvatarGain: Number(process.env.AVATAR_AGENT_MOCK_AVATAR_GAIN || 18),
   mockAvatarDecay: Number(process.env.AVATAR_AGENT_MOCK_AVATAR_DECAY || 0.72)
 };
+
+let currentPreparedSessionVersion = "";
+
+try {
+  const initialPreparedSession = await fetchPreparedSession(config.controlServerBaseUrl, config.roomName);
+  if (initialPreparedSession) {
+    await applyPreparedSession(initialPreparedSession, "startup");
+  }
+} catch (error) {
+  console.warn(`Prepared session preload failed: ${error.message}`);
+}
 
 if (config.videoReplyEnabled) {
   config.openaiInstructions = [
@@ -142,6 +156,9 @@ room
   })
   .on(RoomEvent.ParticipantConnected, (participant) => {
     log("participant.connected", { identity: participant.identity });
+    refreshPreparedSession("participant-connected").catch((error) => {
+      log("prepared-session.refresh_error", { reason: "participant-connected", message: error.message });
+    });
   })
   .on(RoomEvent.ParticipantDisconnected, (participant) => {
     log("participant.disconnected", { identity: participant.identity });
@@ -192,7 +209,7 @@ await publishAgentState(room, "idle", {
   listenSeconds: config.listenSeconds,
   vadThreshold: config.vadThreshold,
   interruptEnabled: config.interruptEnabled,
-  persona: personaConfig?.displayName || null,
+  persona: currentPersonaConfig?.displayName || null,
   voice: config.openaiVoiceLabel,
   voiceMode: config.voiceProfile.mode,
   voiceGender: config.voiceProfile.gender,
@@ -218,7 +235,15 @@ async function publishRealtimeAudio(activeRoom) {
       audioSource: source,
       AudioFrame,
       log,
-      onOutputAudioLevel: updateAvatarMouthLevel
+      onOutputAudioLevel: updateAvatarMouthLevel,
+      onPlaybackStart: async (playback) => {
+        await publishAgentState(room, "speaking", {
+          reason: "elevenlabs-audio-start",
+          voiceId: playback.voiceId,
+          latencyMs: playback.latencyMs,
+          bytes: playback.bytes
+        });
+      }
     });
   }
 
@@ -251,11 +276,10 @@ async function publishRealtimeAudio(activeRoom) {
     },
     onOutputText: async (text, metadata = {}) => {
       if (!text.trim()) return;
-      await publishAgentState(room, "speaking", {
-        reason: "elevenlabs-tts-start",
-        textLength: text.length,
-        responseId: metadata.responseId || null
-      });
+      await refreshPreparedSession("before-elevenlabs-tts");
+      if (!config.elevenLabsVoiceId) {
+        throw new Error("No ElevenLabs voice is prepared for this room yet.");
+      }
       await elevenLabsOutput?.speak(text, metadata);
       await publishAgentState(room, "idle", {
         reason: "elevenlabs-tts-finished",
@@ -283,6 +307,8 @@ async function publishRealtimeAudio(activeRoom) {
     AudioFrame,
     log
   });
+
+  await refreshPreparedSession("realtime-published");
 
   shutdownTasks.push(async () => {
     realtimePump?.close();
@@ -366,11 +392,10 @@ async function createAndPublishAvatarVideo({ audioChunks, replyText, responseId,
     });
 
     if (config.ttsProvider === "elevenlabs" && config.videoReplyPlayElevenLabsOnReady && replyText) {
-      await publishAgentState(room, "speaking", {
-        responseId,
-        reason: "avatar.video.ready",
-        ttsProvider: "elevenlabs"
-      });
+      await refreshPreparedSession("before-avatar-elevenlabs-tts");
+      if (!config.elevenLabsVoiceId) {
+        throw new Error("No ElevenLabs voice is prepared for this room yet.");
+      }
       await elevenLabsOutput?.speak(replyText, {
         reason: "avatar.video.ready",
         responseId
@@ -910,7 +935,6 @@ function validateConfig(values) {
   }
   if (values.mode === "realtime" && values.ttsProvider === "elevenlabs") {
     if (!values.elevenLabsApiKey) missing.push("ELEVENLABS_API_KEY");
-    if (!values.elevenLabsVoiceId) missing.push("ELEVENLABS_VOICE_ID");
   }
 
   if (missing.length > 0) {
@@ -928,6 +952,82 @@ function validateConfig(values) {
   if (!["openai", "elevenlabs"].includes(values.ttsProvider)) {
     throw new Error(`Invalid AVATAR_AGENT_TTS_PROVIDER: ${values.ttsProvider}`);
   }
+}
+
+async function fetchPreparedSession(baseUrl, roomName) {
+  const url = new URL("/api/session/prepare", baseUrl);
+  url.searchParams.set("roomName", roomName);
+  const response = await fetch(url);
+  if (response.status === 404) return null;
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(result.error || JSON.stringify(result));
+  }
+  return result.session || null;
+}
+
+async function refreshPreparedSession(reason = "manual") {
+  const session = await fetchPreparedSession(config.controlServerBaseUrl, config.roomName);
+  if (!session) return null;
+  const version = String(session.updatedAt || "");
+  if (version && version === currentPreparedSessionVersion) return session;
+  await applyPreparedSession(session, reason);
+  return session;
+}
+
+async function applyPreparedSession(session, reason = "manual") {
+  currentPreparedSessionVersion = String(session.updatedAt || Date.now());
+
+  if (session.personaFile) {
+    currentPersonaConfig = await loadPersonaConfig(session.personaFile);
+  } else if (session.realtimeInstructions) {
+    currentPersonaConfig = {
+      displayName: session.displayName || "미래의 나",
+      firstGreeting: session.firstGreeting || "",
+      realtimeInstructions: session.realtimeInstructions,
+      voice: session.voiceGender ? { gender: session.voiceGender } : null
+    };
+  }
+
+  currentVoiceProfile = resolveVoiceProfile({ env: process.env, personaConfig: currentPersonaConfig });
+  config.voiceProfile = currentVoiceProfile;
+  config.openaiVoice = currentVoiceProfile.voice;
+  config.openaiVoiceLabel = currentVoiceProfile.voiceLabel;
+  config.openaiInstructions =
+    currentPersonaConfig?.realtimeInstructions ||
+    process.env.OPENAI_REALTIME_INSTRUCTIONS ||
+    config.openaiInstructions;
+  config.openaiGreeting =
+    process.env.AVATAR_AGENT_GREETING_ENABLED === "true"
+      ? process.env.OPENAI_REALTIME_GREETING ||
+        currentPersonaConfig?.firstGreeting ||
+        config.openaiGreeting
+      : "";
+
+  if (session.voiceId) {
+    config.elevenLabsVoiceId = session.voiceId;
+    elevenLabsOutput?.setVoiceId(session.voiceId);
+  }
+
+  if (session.futureImageFile) {
+    config.videoReplyFacePath = session.futureImageFile;
+  }
+
+  realtimePump?.updateSession({
+    instructions: config.openaiInstructions,
+    prompt: config.openaiGreeting,
+    voice: config.openaiVoice
+  });
+
+  log("prepared-session.applied", {
+    reason,
+    roomName: config.roomName,
+    personaFile: session.personaFile || null,
+    displayName: currentPersonaConfig?.displayName || session.displayName || null,
+    elevenLabsVoiceId: config.elevenLabsVoiceId || null,
+    futureImageFile: session.futureImageFile || null,
+    updatedAt: session.updatedAt || null
+  });
 }
 
 async function loadPersonaConfig(filePath) {
