@@ -104,8 +104,7 @@ elements.personaForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 });
 
-elements.voiceCloneForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
+elements.cloneVoiceButton.addEventListener("click", async () => {
   await cloneVoiceFromUpload();
 });
 

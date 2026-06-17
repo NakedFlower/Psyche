@@ -132,8 +132,33 @@
               </select>
             </label>
           </div>
+          <section id="voiceCloneForm" class="setup-form voice-form inline-subpanel">
+            <label>
+              Voice sample
+              <input id="voiceSample" name="sample" type="file" accept=".wav,.mp3,.m4a,.aac,audio/wav,audio/mpeg,audio/mp4,audio/aac" />
+            </label>
+            <div class="form-grid">
+              <label>
+                Clone name
+                <input id="voiceCloneName" value="Psyche Future Self Voice" />
+              </label>
+              <label>
+                Clone gender
+                <select id="voiceCloneGender">
+                  <option value="neutral">neutral</option>
+                  <option value="female">female</option>
+                  <option value="male">male</option>
+                </select>
+              </label>
+            </div>
+            <label class="switch consent-row">
+              <input id="voiceConsent" type="checkbox" />
+              <span>I confirm this is my own voice sample.</span>
+            </label>
+            <button id="cloneVoiceButton" type="button">Clone voice</button>
+          </section>
           <label>
-            Speaking loop sample audio
+            Lip-sync sample audio
             <input id="avatarAudioFile" type="file" accept=".wav,.mp3,.m4a,.aac,audio/*" />
           </label>
           <input id="avatarWorkerUrl" type="hidden" value="http://127.0.0.1:8080" />
@@ -154,32 +179,6 @@
             <li id="prepJoinStatus">5. Room join waiting</li>
           </ol>
         </section>
-
-        <form id="voiceCloneForm" class="setup-form voice-form hidden-panel">
-          <label>
-            Voice sample
-            <input id="voiceSample" name="sample" type="file" accept=".wav,.mp3,.m4a,.aac,audio/wav,audio/mpeg,audio/mp4,audio/aac" />
-          </label>
-          <div class="form-grid">
-            <label>
-              Clone name
-              <input id="voiceCloneName" value="Psyche Future Self Voice" />
-            </label>
-            <label>
-              Clone gender
-              <select id="voiceCloneGender">
-                <option value="neutral">neutral</option>
-                <option value="female">female</option>
-                <option value="male">male</option>
-              </select>
-            </label>
-          </div>
-          <label class="switch consent-row">
-            <input id="voiceConsent" type="checkbox" />
-            <span>I confirm this is my own voice sample.</span>
-          </label>
-          <button id="cloneVoiceButton" type="submit">Clone voice</button>
-        </form>
 
         <div class="setup-output hidden-panel">
           <h2>Generated Config</h2>

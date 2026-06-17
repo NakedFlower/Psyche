@@ -295,6 +295,11 @@ h2 {
   background: #101513;
 }
 
+.inline-subpanel {
+  padding: 0.8rem;
+  background: #131816;
+}
+
 .form-grid,
 .slider-grid {
   display: grid;
