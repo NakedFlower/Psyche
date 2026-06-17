@@ -286,20 +286,22 @@ async function createFutureImage(req, res) {
 
   const targetYears = String(form.fields.targetYears || "10").slice(0, 12);
   const style = String(form.fields.style || "natural").slice(0, 80);
+  const survey = parseJsonField(form.fields.survey) || {};
+  const weights = parseJsonField(form.fields.weights) || {};
+  const persona = loadPersonaForImagePrompt(form.fields.personaFile);
   const originalName = path.basename(photo.filename || "portrait.png");
   const safeName = originalName.replace(/[^\w.-]/g, "-").slice(0, 120) || "portrait.png";
   const inputPath = path.resolve(rootDir, "runs/future-images/uploads", `${Date.now()}-${safeName}`);
   fs.mkdirSync(path.dirname(inputPath), { recursive: true });
   fs.writeFileSync(inputPath, photo.data);
 
-  const prompt = [
-    `Transform this user-provided portrait into a plausible ${targetYears}-years-in-the-future version of the same person.`,
-    "Preserve identity, face structure, ethnicity, and recognizable features.",
-    "Make it a natural photorealistic portrait suitable for a video-call avatar.",
-    "Do not change the person into a celebrity or a different person.",
-    "Keep the expression calm and approachable, looking toward the camera.",
-    `Style preference: ${style}.`
-  ].join(" ");
+  const prompt = buildFutureImagePrompt({
+    targetYears,
+    style,
+    survey,
+    weights,
+    persona
+  });
 
   const imageForm = new FormData();
   imageForm.append("model", imageConfig.model);
@@ -340,8 +342,135 @@ async function createFutureImage(req, res) {
     provider: imageConfig.provider,
     model: imageConfig.model,
     targetYears,
-    style
+    style,
+    imageDirection: describeImageDirection({ survey, weights, persona, style })
   });
+}
+
+function buildFutureImagePrompt({ targetYears, style, survey, weights, persona }) {
+  const direction = describeImageDirection({ survey, weights, persona, style });
+  const futureSummary = buildFutureImageSummary({ survey, persona });
+  return [
+    `Transform this user-provided portrait into a plausible ${targetYears}-years-in-the-future version of the exact same person.`,
+    "Preserve identity, face structure, ethnicity, skin tone, and other recognizable features.",
+    "Make it a photorealistic head-and-shoulders portrait suitable for a premium video-call avatar.",
+    "Do not turn the person into a celebrity, a different person, or a stylized illustration.",
+    "Keep the expression calm, grounded, and camera-facing.",
+    "This must feel like the same person after years of life experience, not a random lookalike.",
+    "Important: do not keep the same hairstyle from the source image.",
+    "Important: do not keep the same clothing from the source image.",
+    "The future hairstyle must be intentionally different from the current one in at least length, part, texture, silhouette, styling, or grooming while staying realistic for the same person.",
+    "The outfit must be intentionally different from the source outfit and should reflect the person's future role, maturity, and life outcome.",
+    `Future self context: ${futureSummary}.`,
+    `Wardrobe direction: ${direction.wardrobe}.`,
+    `Hair direction: ${direction.hair}.`,
+    `Overall vibe: ${direction.vibe}.`,
+    `Style preference: ${style}.`,
+    "Avoid extreme fashion, fantasy costumes, duplicate shirts, or duplicated hair silhouette from the original photo.",
+    "Output only the edited future portrait."
+  ].join(" ");
+}
+
+function loadPersonaForImagePrompt(personaFile) {
+  if (!personaFile) return null;
+  try {
+    const candidate = path.resolve(rootDir, String(personaFile));
+    if (!candidate.startsWith(rootDir) || !fs.existsSync(candidate)) {
+      return null;
+    }
+    return JSON.parse(fs.readFileSync(candidate, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function parseJsonField(value) {
+  if (!value || typeof value !== "string") return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function buildFutureImageSummary({ survey, persona }) {
+  const identities =
+    persona?.predictedSelf?.identityKeywords?.slice?.(0, 3)?.join(", ") ||
+    listText(survey?.values) ||
+    "성장 지향적인 미래 자아";
+  const field = persona?.predictedSelf?.expertise?.field || listText(survey?.goals) || "커리어를 쌓아가는 사람";
+  const achievement = persona?.predictedSelf?.signatureAchievement || "";
+  const freedom = persona?.predictedSelf?.freedom?.description || "";
+  const trajectory = persona?.futureTrajectory?.description || "";
+  return [identities, field, freedom, achievement, trajectory].filter(Boolean).join(" / ");
+}
+
+function describeImageDirection({ survey, weights, persona, style }) {
+  const trajectory = persona?.futureTrajectory?.kind || "steady";
+  const freedomLevel = persona?.predictedSelf?.freedom?.level || "balanced";
+  const careerWeight = Number(weights?.careerFocus ?? 60);
+  const idealWeight = Number(weights?.idealFuture ?? 60);
+  const mbti = String(survey?.mbti || "").toUpperCase();
+  const field = persona?.predictedSelf?.expertise?.field || listText(survey?.goals) || "전문 직무";
+
+  let wardrobe = "";
+  let hair = "";
+  let vibe = "";
+
+  if (trajectory === "strained") {
+    wardrobe =
+      "practical, restrained clothing with visible realism; neat but slightly worn-in layers, muted palette, less polished than a triumphant success story";
+    hair =
+      "a clearly different haircut from the source, simpler and more functional, with less styling effort and a more grounded lived-in look";
+    vibe = "resilient, thoughtful, slightly tired but still composed";
+  } else if (trajectory === "stalled") {
+    wardrobe =
+      "quiet everyday-professional clothing, realistic and modest, more reorganizing-life energy than polished victory energy";
+    hair =
+      "a noticeably changed hairstyle from the source, calmer and more understated, with a different silhouette and grooming choice";
+    vibe = "paused, reflective, getting back on track";
+  } else if (careerWeight >= 65 && freedomLevel === "high-agency") {
+    wardrobe =
+      `successful modern ${field} energy: elevated professional clothing, refined textures, thoughtful layering, understated luxury, founder or senior-operator presence`;
+    hair =
+      "a clearly changed, more intentional and mature hairstyle than the source, with a distinct silhouette that signals seniority and confidence";
+    vibe = "successful, composed, high-agency, quietly impressive";
+  } else if (careerWeight >= 65) {
+    wardrobe =
+      `competent rising ${field} look: polished smart-casual clothing, structured but not flashy, the outfit of someone trusted for real work`;
+    hair =
+      "a different hairstyle from the source, more deliberate and adult, cleaner silhouette and more finished grooming";
+    vibe = "capable, focused, upward-moving";
+  } else if (idealWeight >= 65) {
+    wardrobe =
+      "tasteful life-rich clothing, soft premium casual layers, relaxed but considered outfit that implies balance, health, and choice";
+    hair =
+      "a noticeably different hairstyle from the source that feels softer, more settled, and naturally confident";
+    vibe = "balanced, warm, self-possessed";
+  } else {
+    wardrobe =
+      "realistic mature clothing that fits their likely future role; clean, believable, different from the source outfit, neither flashy nor generic";
+    hair =
+      "a believable future hairstyle that is definitely different from the source in length or styling, while still feeling like the same person";
+    vibe = "realistic, grounded, future-self version of the same person";
+  }
+
+  if (mbti.startsWith("INT")) {
+    wardrobe += "; minimalist, understated, quietly intelligent styling";
+  }
+
+  if (String(style).includes("successful")) {
+    wardrobe += "; lean slightly more premium and put-together";
+  } else if (String(style).includes("resilient")) {
+    vibe += ", with subtle recovery energy rather than glossy perfection";
+  }
+
+  return { wardrobe, hair, vibe };
+}
+
+function listText(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).join(", ");
+  return String(value || "").trim();
 }
 
 function getFutureImageConfig() {

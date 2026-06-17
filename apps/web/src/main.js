@@ -5,6 +5,7 @@ const state = {
   remoteElements: new Map(),
   localElements: [],
   hiddenAudioElements: [],
+  personaFile: "",
   defaultAvatarUrl: localStorage.getItem("psyche.futureAvatarUrl") || "",
   idleLoopUrl: localStorage.getItem("psyche.idleLoopUrl") || "",
   speakingLoopUrl: localStorage.getItem("psyche.speakingLoopUrl") || "",
@@ -77,6 +78,7 @@ const elements = {
 };
 
 elements.identity.value = `browser-${Math.random().toString(16).slice(2, 8)}`;
+elements.futureImageYears.value = elements.targetYear.value;
 renderDefaultAvatar();
 
 elements.form.addEventListener("submit", async (event) => {
@@ -93,6 +95,10 @@ elements.fullscreenButton.addEventListener("click", async () => {
 });
 
 document.addEventListener("fullscreenchange", syncFullscreenUi);
+
+elements.targetYear.addEventListener("change", () => {
+  elements.futureImageYears.value = elements.targetYear.value;
+});
 
 elements.personaForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -295,6 +301,7 @@ async function generatePersona(options = {}) {
       firstGreeting: result.firstGreeting,
       runWithPersona: `AVATAR_PERSONA_FILE=${result.personaFile} /opt/homebrew/bin/node apps/agent/room-agent.mjs`
     });
+    state.personaFile = result.personaFile || "";
     if (!options.silent) appendEvent("persona", `Generated ${result.personaFile}`);
     return result;
   } catch (error) {
@@ -378,8 +385,13 @@ async function generateFutureImage(options = {}) {
   try {
     const form = new FormData();
     form.append("photo", photo);
-    form.append("targetYears", elements.futureImageYears.value);
+    form.append("targetYears", elements.targetYear.value);
     form.append("style", elements.futureImageStyle.value);
+    form.append("survey", JSON.stringify(buildPersonaPayload().survey));
+    form.append("weights", JSON.stringify(buildPersonaPayload().weights));
+    if (state.personaFile) {
+      form.append("personaFile", state.personaFile);
+    }
 
     const response = await fetch("/api/avatar/future-image", {
       method: "POST",
