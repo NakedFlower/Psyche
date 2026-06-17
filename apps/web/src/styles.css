@@ -116,10 +116,16 @@ h2 {
 .call-controls {
   display: flex;
   gap: 0.65rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .call-controls button {
   min-width: 7.25rem;
+}
+
+.fullscreen-toggle[aria-pressed="true"] {
+  background: #8ed6ff;
 }
 
 .call-stage {
@@ -456,5 +462,96 @@ h2 {
 
   .call-controls button {
     flex: 1;
+  }
+}
+
+body.call-fullscreen {
+  background: #070908;
+}
+
+body.call-fullscreen .shell {
+  grid-template-rows: 1fr;
+  gap: 0;
+  padding: 0;
+}
+
+body.call-fullscreen .topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  padding: 0.9rem 1rem;
+  background: linear-gradient(180deg, rgba(7, 9, 8, 0.94), rgba(7, 9, 8, 0.36), transparent);
+}
+
+body.call-fullscreen .setup-panel {
+  display: none;
+}
+
+body.call-fullscreen .call-stage {
+  position: fixed;
+  inset: 0;
+  gap: 0;
+  min-height: 100vh;
+  height: 100vh;
+  background: #070908;
+}
+
+body.call-fullscreen .video-pane {
+  position: relative;
+  border: 0;
+  border-radius: 0;
+  background: #070908;
+}
+
+body.call-fullscreen .pane-head {
+  position: absolute;
+  top: 0.9rem;
+  left: 1rem;
+  right: 1rem;
+  z-index: 5;
+  padding: 0;
+  pointer-events: none;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.6);
+}
+
+body.call-fullscreen .media-grid {
+  padding: 0;
+  overflow: hidden;
+}
+
+body.call-fullscreen .media-grid.empty {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+body.call-fullscreen .media-card {
+  border: 0;
+  border-radius: 0;
+}
+
+body.call-fullscreen .media-card video,
+body.call-fullscreen .media-card img {
+  min-height: 100vh;
+  height: 100vh;
+}
+
+body.call-fullscreen .media-label {
+  left: 1rem;
+  bottom: 1rem;
+}
+
+@media (max-width: 720px) {
+  body.call-fullscreen .call-stage {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+
+  body.call-fullscreen .media-card video,
+  body.call-fullscreen .media-card img {
+    min-height: 50vh;
+    height: 50vh;
   }
 }

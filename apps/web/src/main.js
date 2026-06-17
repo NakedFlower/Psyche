@@ -19,6 +19,7 @@ const elements = {
   roomName: document.getElementById("roomName"),
   identity: document.getElementById("identity"),
   joinButton: document.getElementById("joinButton"),
+  fullscreenButton: document.getElementById("fullscreenButton"),
   leaveButton: document.getElementById("leaveButton"),
   personaForm: document.getElementById("personaForm"),
   targetYear: document.getElementById("targetYear"),
@@ -86,6 +87,12 @@ elements.form.addEventListener("submit", async (event) => {
 elements.leaveButton.addEventListener("click", async () => {
   await leaveRoom();
 });
+
+elements.fullscreenButton.addEventListener("click", async () => {
+  await toggleCallFullscreen();
+});
+
+document.addEventListener("fullscreenchange", syncFullscreenUi);
 
 elements.personaForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -1133,6 +1140,31 @@ function setBusy(isBusy, label = null) {
   elements.joinButton.textContent = isBusy ? label || "Joining..." : "Prepare & Join";
 }
 
+async function toggleCallFullscreen() {
+  const target = document.documentElement;
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+    } else {
+      await target.requestFullscreen();
+    }
+  } catch (error) {
+    appendEvent("error", `Fullscreen failed: ${error.message}`);
+  } finally {
+    syncFullscreenUi();
+  }
+}
+
+function syncFullscreenUi() {
+  const isFullscreen = Boolean(document.fullscreenElement);
+  document.body.classList.toggle("call-fullscreen", isFullscreen);
+  if (elements.fullscreenButton) {
+    elements.fullscreenButton.textContent = isFullscreen ? "Exit Fullscreen" : "Fullscreen";
+    elements.fullscreenButton.setAttribute("aria-pressed", String(isFullscreen));
+    elements.fullscreenButton.classList.toggle("fullscreen-toggle", true);
+  }
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1154,3 +1186,5 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+
+syncFullscreenUi();
