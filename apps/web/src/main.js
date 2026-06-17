@@ -39,10 +39,7 @@ const elements = {
   generatePersonaButton: document.getElementById("generatePersonaButton"),
   voiceCloneForm: document.getElementById("voiceCloneForm"),
   voiceSample: document.getElementById("voiceSample"),
-  voiceCloneName: document.getElementById("voiceCloneName"),
-  voiceCloneGender: document.getElementById("voiceCloneGender"),
   voiceConsent: document.getElementById("voiceConsent"),
-  cloneVoiceButton: document.getElementById("cloneVoiceButton"),
   futureImageForm: document.getElementById("futureImageForm"),
   futureImagePhoto: document.getElementById("futureImagePhoto"),
   futureImageYears: document.getElementById("futureImageYears"),
@@ -54,7 +51,6 @@ const elements = {
   avatarEngine: document.getElementById("avatarEngine"),
   avatarFacePath: document.getElementById("avatarFacePath"),
   avatarAudioPath: document.getElementById("avatarAudioPath"),
-  avatarAudioFile: document.getElementById("avatarAudioFile"),
   generateAvatarButton: document.getElementById("generateAvatarButton"),
   generateLoopButton: document.getElementById("generateLoopButton"),
   avatarDemoStatus: document.getElementById("avatarDemoStatus"),
@@ -102,10 +98,6 @@ elements.targetYear.addEventListener("change", () => {
 
 elements.personaForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-});
-
-elements.cloneVoiceButton.addEventListener("click", async () => {
-  await cloneVoiceFromUpload();
 });
 
 elements.futureImageForm.addEventListener("submit", async (event) => {
@@ -201,9 +193,9 @@ async function prepareAndJoinRoom() {
     markPrepStep(currentStep, "done", "1. Persona ready");
 
     currentStep = elements.prepImageStatus;
-    markPrepStep(currentStep, "working", "2. Creating future face...");
-    await generateFutureImage({ silent: true });
-    markPrepStep(currentStep, "done", "2. Future face ready");
+    markPrepStep(currentStep, "working", "2. Creating future face and cloning voice...");
+    await Promise.all([generateFutureImage({ silent: true }), cloneVoiceFromUpload({ silent: true })]);
+    markPrepStep(currentStep, "done", "2. Future face and voice ready");
 
     currentStep = elements.prepIdleStatus;
     markPrepStep(currentStep, "working", "3. Building LivePortrait idle loop...");
@@ -314,27 +306,33 @@ async function generatePersona(options = {}) {
   }
 }
 
-async function cloneVoiceFromUpload() {
+async function cloneVoiceFromUpload(options = {}) {
   if (!elements.voiceConsent.checked) {
-    setSetupOutput({ type: "voice.error", message: "Confirm that this is your own voice sample." });
-    return;
+    const error = new Error("Confirm that this is your own voice sample.");
+    if (!options.silent) {
+      setSetupOutput({ type: "voice.error", message: error.message });
+    }
+    throw error;
   }
 
   const [file] = elements.voiceSample.files || [];
   if (!file) {
-    setSetupOutput({ type: "voice.error", message: "Choose a wav or mp3 voice sample first." });
-    return;
+    const error = new Error("Choose a 2-3 minute voice sample first.");
+    if (!options.silent) {
+      setSetupOutput({ type: "voice.error", message: error.message });
+    }
+    throw error;
   }
 
-  elements.cloneVoiceButton.disabled = true;
-  elements.cloneVoiceButton.textContent = "Cloning...";
-  setSetupOutput(`Uploading ${file.name} and cloning voice...`);
+  if (!options.silent) {
+    setSetupOutput(`Uploading ${file.name} and cloning voice...`);
+  }
 
   try {
     const form = new FormData();
     form.append("sample", file);
-    form.append("name", elements.voiceCloneName.value.trim() || "Psyche Future Self Voice");
-    form.append("gender", elements.voiceCloneGender.value);
+    form.append("name", "Psyche Future Self Voice");
+    form.append("gender", elements.voiceGender.value || "neutral");
     form.append("description", "Psyche user-owned voice clone for future-self avatar R&D.");
     form.append("removeBackgroundNoise", "true");
 
@@ -347,34 +345,39 @@ async function cloneVoiceFromUpload() {
       throw new Error(result.error ? JSON.stringify(result) : JSON.stringify(result));
     }
 
-    setSetupOutput({
-      type: "voice.cloned",
-      voiceId: result.voiceId,
-      voiceFile: result.voiceFile,
-      sampleFile: result.sampleFile,
-      audioDurationSec: result.audioDurationSec,
-      lipSyncSampleFile: result.lipSyncSampleFile,
-      lipSyncSampleStartSec: result.lipSyncSampleStartSec,
-      lipSyncSampleDurationSec: result.lipSyncSampleDurationSec,
-      requiresVerification: result.requiresVerification,
-      env: [
-        `ELEVENLABS_VOICE_ID=${result.voiceId}`,
-        "AVATAR_AGENT_TTS_PROVIDER=elevenlabs",
-        "ELEVENLABS_LIVEKIT_OUTPUT_FORMAT=pcm_24000"
-      ],
-      runWithClonedVoice:
-        `ELEVENLABS_VOICE_ID=${result.voiceId} /opt/homebrew/bin/node apps/agent/room-agent.mjs`
-    });
+    if (!options.silent) {
+      setSetupOutput({
+        type: "voice.cloned",
+        voiceId: result.voiceId,
+        voiceFile: result.voiceFile,
+        sampleFile: result.sampleFile,
+        audioDurationSec: result.audioDurationSec,
+        lipSyncSampleFile: result.lipSyncSampleFile,
+        lipSyncSampleStartSec: result.lipSyncSampleStartSec,
+        lipSyncSampleDurationSec: result.lipSyncSampleDurationSec,
+        requiresVerification: result.requiresVerification,
+        env: [
+          `ELEVENLABS_VOICE_ID=${result.voiceId}`,
+          "AVATAR_AGENT_TTS_PROVIDER=elevenlabs",
+          "ELEVENLABS_LIVEKIT_OUTPUT_FORMAT=pcm_24000"
+        ],
+        runWithClonedVoice:
+          `ELEVENLABS_VOICE_ID=${result.voiceId} /opt/homebrew/bin/node apps/agent/room-agent.mjs`
+      });
+    }
     if (result.lipSyncSampleFile) {
       elements.avatarAudioPath.value = result.lipSyncSampleFile;
     }
-    appendEvent("voice", `Cloned voice ${result.voiceId}`);
+    if (!options.silent) {
+      appendEvent("voice", `Cloned voice ${result.voiceId}`);
+    }
+    return result;
   } catch (error) {
-    setSetupOutput({ type: "voice.error", message: error.message });
-    appendEvent("error", error.message);
-  } finally {
-    elements.cloneVoiceButton.disabled = false;
-    elements.cloneVoiceButton.textContent = "Clone voice";
+    if (!options.silent) {
+      setSetupOutput({ type: "voice.error", message: error.message });
+      appendEvent("error", error.message);
+    }
+    throw error;
   }
 }
 
@@ -652,9 +655,8 @@ async function askFutureSelfAvatar() {
 }
 
 async function createAvatarJob(workerUrl, options = {}) {
-  const [audioFile] = elements.avatarAudioFile.files || [];
   const uploadedFace = await resolveSelectedFaceUpload();
-  if (audioFile || uploadedFace || options.useAudio === false) {
+  if (uploadedFace || options.useAudio === false) {
     const form = new FormData();
     form.append("engine", options.engineOverride || elements.avatarEngine.value);
     if (uploadedFace) {
@@ -664,8 +666,6 @@ async function createAvatarJob(workerUrl, options = {}) {
     }
     if (options.useAudio === false) {
       // idle-loop only needs the current/generated face image
-    } else if (audioFile) {
-      form.append("audio", audioFile);
     } else {
       form.append("audioPath", elements.avatarAudioPath.value.trim());
     }
