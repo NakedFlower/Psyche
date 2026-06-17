@@ -350,6 +350,7 @@ async function createFutureImage(req, res) {
 function buildFutureImagePrompt({ targetYears, style, survey, weights, persona }) {
   const direction = describeImageDirection({ survey, weights, persona, style });
   const futureSummary = buildFutureImageSummary({ survey, persona });
+  const hairVariant = chooseMatureHairVariant({ survey, persona, style });
   return [
     `Transform this user-provided portrait into a plausible ${targetYears}-years-in-the-future version of the exact same person.`,
     "Preserve identity, face structure, ethnicity, skin tone, and other recognizable features.",
@@ -359,14 +360,18 @@ function buildFutureImagePrompt({ targetYears, style, survey, weights, persona }
     "This must feel like the same person after years of life experience, not a random lookalike.",
     "Important: do not keep the same hairstyle from the source image.",
     "Important: do not keep the same clothing from the source image.",
-    "The future hairstyle must be intentionally different from the current one in at least length, part, texture, silhouette, styling, or grooming while staying realistic for the same person.",
+    "The future hairstyle must be intentionally and visibly different from the current one.",
+    "Change at least two of these: hair length, parting direction, hair volume, texture, silhouette, styling, grooming, or facial-hair presentation.",
+    "Do not copy the same bangs, the same framing around the face, or the same casual unstyled student haircut from the source.",
+    "Prefer a more mature, more intentional, more styled haircut than the source image.",
+    `Use this mature hairstyle direction: ${hairVariant}.`,
     "The outfit must be intentionally different from the source outfit and should reflect the person's future role, maturity, and life outcome.",
     `Future self context: ${futureSummary}.`,
     `Wardrobe direction: ${direction.wardrobe}.`,
     `Hair direction: ${direction.hair}.`,
     `Overall vibe: ${direction.vibe}.`,
     `Style preference: ${style}.`,
-    "Avoid extreme fashion, fantasy costumes, duplicate shirts, or duplicated hair silhouette from the original photo.",
+    "Avoid extreme fashion, fantasy costumes, duplicate shirts, duplicated hair silhouette, or nearly identical hair from the original photo.",
     "Output only the edited future portrait."
   ].join(" ");
 }
@@ -466,6 +471,64 @@ function describeImageDirection({ survey, weights, persona, style }) {
   }
 
   return { wardrobe, hair, vibe };
+}
+
+function chooseMatureHairVariant({ survey, persona, style }) {
+  const gender = normalizePresentationGender(
+    persona?.voiceProfile?.gender || survey?.voiceGender || ""
+  );
+  const trajectory = persona?.futureTrajectory?.kind || "steady";
+  const premium = String(style).includes("successful");
+
+  const masculine = [
+    "clean side-part with shorter sides and a more structured top",
+    "softly pushed-back medium hair with clear shape and deliberate styling",
+    "refined two-block variation with reduced fringe and a more mature silhouette",
+    "neat textured crop with subtle volume and a more professional outline",
+    "medium-length layered hair parted differently from the source, with calmer volume and polished grooming"
+  ];
+  const feminine = [
+    "soft shoulder-length layers with a changed part and more polished framing",
+    "sleek medium-length hair tucked back with a mature silhouette",
+    "elegant layered bob with refined texture and different face framing",
+    "longer controlled waves with a different parting and more intentional styling",
+    "clean low-volume layered style that reads older, calmer, and more established"
+  ];
+  const neutral = [
+    "mature layered medium haircut with a changed part and more deliberate styling",
+    "cleaner, more polished silhouette with reduced fringe and more open forehead",
+    "soft pushed-back styling with different volume distribution and adult grooming",
+    "refined medium-length cut with changed framing around the face and more structure",
+    "calmer, more intentional haircut with a different silhouette than the source"
+  ];
+
+  let pool = neutral;
+  if (gender === "male") pool = masculine;
+  if (gender === "female") pool = feminine;
+
+  if (trajectory === "strained") {
+    pool = pool.map((item) => `${item}, but slightly more practical and understated`);
+  } else if (premium) {
+    pool = pool.map((item) => `${item}, with quietly premium professional styling`);
+  }
+
+  return pool[stableVariantIndex([survey?.mbti, survey?.age, persona?.futureYear, style].join("|"), pool.length)];
+}
+
+function stableVariantIndex(seed, length) {
+  const text = String(seed || "psyche-future-hair");
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  }
+  return length > 0 ? hash % length : 0;
+}
+
+function normalizePresentationGender(value) {
+  const text = String(value || "").toLowerCase();
+  if (text.includes("female") || text.includes("woman")) return "female";
+  if (text.includes("male") || text.includes("man")) return "male";
+  return "neutral";
 }
 
 function listText(value) {
