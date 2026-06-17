@@ -16,13 +16,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REPO = ROOT / "models" / "liveportrait" / "repos" / "LivePortrait"
 DEFAULT_OUTPUT_DIR = ROOT / "runs" / "liveportrait"
+DEFAULT_DRIVING = "assets/examples/driving/d0.mp4"
+DEFAULT_ANIMATION_REGION = "eyes"
+DEFAULT_DRIVING_MULTIPLIER = "0.18"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--face", required=True)
     parser.add_argument("--out-dir", required=True)
-    parser.add_argument("--driving", default=os.environ.get("LIVEPORTRAIT_IDLE_DRIVING", "assets/examples/driving/d0.mp4"))
+    parser.add_argument("--driving", default=os.environ.get("LIVEPORTRAIT_IDLE_DRIVING", DEFAULT_DRIVING))
     parser.add_argument("--relative", action="store_true", help="Treat --driving as relative to the LivePortrait repo.")
     args = parser.parse_args()
 
@@ -65,11 +68,19 @@ def main() -> int:
         str(driving_path),
         "--output-dir",
         str(temp_output_dir),
+        "--animation-region",
+        os.environ.get("LIVEPORTRAIT_IDLE_ANIMATION_REGION", DEFAULT_ANIMATION_REGION),
+        "--driving-multiplier",
+        os.environ.get("LIVEPORTRAIT_IDLE_DRIVING_MULTIPLIER", DEFAULT_DRIVING_MULTIPLIER),
     ]
     if str(os.environ.get("LIVEPORTRAIT_USE_HALF", "true")).lower() not in {"0", "false", "no"}:
         command.append("--flag-use-half-precision")
     if str(os.environ.get("LIVEPORTRAIT_FLAG_PASTE_BACK", "true")).lower() in {"0", "false", "no"}:
         command.extend(["--flag-pasteback", "False"])
+    if str(os.environ.get("LIVEPORTRAIT_IDLE_RELATIVE_MOTION", "false")).lower() in {"0", "false", "no"}:
+        command.append("--no-flag-relative-motion")
+    if str(os.environ.get("LIVEPORTRAIT_IDLE_STITCHING", "true")).lower() in {"1", "true", "yes"}:
+        command.append("--flag-stitching")
 
     result = subprocess.run(command, cwd=repo, text=True, capture_output=True, check=False)
     generated = find_latest_video(temp_output_dir, started)
