@@ -1007,49 +1007,85 @@ function renderDefaultAvatar() {
   const imageUrl = state.defaultAvatarUrl || `${workerUrl}/${facePath}?t=${Date.now()}`;
 
   elements.remoteMedia.classList.remove("empty");
-  elements.remoteMedia.textContent = "";
+  let wrapper = elements.remoteMedia.querySelector(".idle-avatar");
+  if (!wrapper) {
+    elements.remoteMedia.textContent = "";
+    wrapper = document.createElement("article");
+    wrapper.className = "media-card video idle-avatar";
 
-  const wrapper = document.createElement("article");
-  wrapper.className = "media-card video idle-avatar";
+    const stillImage = document.createElement("img");
+    stillImage.className = "avatar-layer avatar-still";
+    stillImage.alt = "AI Future Self";
+    stillImage.loading = "eager";
+
+    const idleVideo = document.createElement("video");
+    idleVideo.className = "avatar-layer avatar-idle-loop";
+    idleVideo.autoplay = true;
+    idleVideo.loop = true;
+    idleVideo.muted = true;
+    idleVideo.playsInline = true;
+
+    const speakingVideo = document.createElement("video");
+    speakingVideo.className = "avatar-layer avatar-speaking-loop";
+    speakingVideo.autoplay = true;
+    speakingVideo.loop = true;
+    speakingVideo.muted = true;
+    speakingVideo.playsInline = true;
+
+    const mouth = document.createElement("div");
+    mouth.className = "avatar-mouth";
+
+    const label = document.createElement("div");
+    label.className = "media-label";
+
+    for (const media of [stillImage, idleVideo, speakingVideo]) {
+      media.addEventListener("error", () => {
+        elements.remoteMedia.classList.add("empty");
+        elements.remoteMedia.textContent = "AI Future Self waiting";
+      });
+    }
+
+    wrapper.append(stillImage, idleVideo, speakingVideo, mouth, label);
+    elements.remoteMedia.append(wrapper);
+  }
+
   wrapper.classList.toggle("speaking", state.avatarSpeaking);
-  const showSpeakingLoop = state.avatarSpeaking && state.speakingLoopUrl;
-  const showIdleLoop = !state.avatarSpeaking && state.idleLoopUrl;
-  const showLoopVideo = showSpeakingLoop || showIdleLoop;
-  const media = showLoopVideo ? document.createElement("video") : document.createElement("img");
-  if (showLoopVideo) {
-    media.src = showSpeakingLoop ? state.speakingLoopUrl : state.idleLoopUrl;
-    media.autoplay = true;
-    media.loop = true;
-    media.muted = true;
-    media.playsInline = true;
-  } else {
-    media.src = imageUrl;
-    media.alt = "AI Future Self";
-    media.loading = "eager";
+  const stillImage = wrapper.querySelector(".avatar-still");
+  const idleVideo = wrapper.querySelector(".avatar-idle-loop");
+  const speakingVideo = wrapper.querySelector(".avatar-speaking-loop");
+  const label = wrapper.querySelector(".media-label");
+  const mouth = wrapper.querySelector(".avatar-mouth");
+
+  if (stillImage && stillImage.src !== imageUrl) {
+    stillImage.src = imageUrl;
+  }
+  if (idleVideo && state.idleLoopUrl && idleVideo.src !== state.idleLoopUrl) {
+    idleVideo.src = state.idleLoopUrl;
+    idleVideo.load();
+    void idleVideo.play().catch(() => {});
+  }
+  if (speakingVideo && state.speakingLoopUrl && speakingVideo.src !== state.speakingLoopUrl) {
+    speakingVideo.src = state.speakingLoopUrl;
+    speakingVideo.load();
+    void speakingVideo.play().catch(() => {});
   }
 
-  const label = document.createElement("div");
-  label.className = "media-label";
-  label.textContent = showSpeakingLoop
-    ? "AI Future Self / speaking loop"
-    : showIdleLoop
-      ? "AI Future Self / idle loop"
-      : "AI Future Self / waiting";
+  const showSpeakingLoop = state.avatarSpeaking && Boolean(state.speakingLoopUrl);
+  const showIdleLoop = !state.avatarSpeaking && Boolean(state.idleLoopUrl);
 
-  const mouth = document.createElement("div");
-  mouth.className = "avatar-mouth";
-
-  media.addEventListener("error", () => {
-    elements.remoteMedia.classList.add("empty");
-    elements.remoteMedia.textContent = "AI Future Self waiting";
-  });
-
-  if (showLoopVideo) {
-    wrapper.append(media, label);
-  } else {
-    wrapper.append(media, mouth, label);
+  stillImage?.classList.toggle("is-visible", !showSpeakingLoop && !showIdleLoop);
+  idleVideo?.classList.toggle("is-visible", showIdleLoop);
+  speakingVideo?.classList.toggle("is-visible", showSpeakingLoop);
+  if (mouth) {
+    mouth.style.display = showSpeakingLoop || showIdleLoop ? "none" : "";
   }
-  elements.remoteMedia.append(wrapper);
+  if (label) {
+    label.textContent = showSpeakingLoop
+      ? "AI Future Self / speaking loop"
+      : showIdleLoop
+        ? "AI Future Self / idle loop"
+        : "AI Future Self / waiting";
+  }
 }
 
 function setAvatarSpeaking(isSpeaking, autoStopMs = 0) {
