@@ -8,6 +8,8 @@ const util = require("node:util");
 const rootDir = path.resolve(__dirname, "../..");
 const webDir = path.resolve(rootDir, "apps/web");
 const execFileAsync = util.promisify(execFile);
+const ffmpegBinary = resolveBinary("FFMPEG_PATH", ["ffmpeg", "/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"]);
+const ffprobeBinary = resolveBinary("FFPROBE_PATH", ["ffprobe", "/opt/homebrew/bin/ffprobe", "/usr/local/bin/ffprobe"]);
 
 loadEnv(path.join(rootDir, ".env"));
 
@@ -267,15 +269,15 @@ async function cloneVoice(req, res) {
     ok: true,
     output,
     voiceFile: path.relative(rootDir, output),
+    ...record,
     sampleFile: path.relative(rootDir, samplePath),
-    lipSyncSampleFile: path.relative(rootDir, lipSyncSample.outputPath),
-    ...record
+    lipSyncSampleFile: path.relative(rootDir, lipSyncSample.outputPath)
   });
 }
 
 async function probeAudioDuration(filePath) {
   try {
-    const { stdout } = await execFileAsync("ffprobe", [
+    const { stdout } = await execFileAsync(ffprobeBinary, [
       "-v",
       "error",
       "-show_entries",
@@ -301,26 +303,52 @@ async function createLipSyncSeedClip({ inputPath, outputDir, preferredDurationSe
   const durationSec = chooseClipDuration(totalDurationSec, preferredDurationSec);
   const startSec = chooseClipStart(totalDurationSec, durationSec);
 
-  await execFileAsync("ffmpeg", [
-    "-y",
-    "-ss",
-    formatSeconds(startSec),
-    "-i",
-    inputPath,
-    "-t",
-    formatSeconds(durationSec),
-    "-ac",
-    "1",
-    "-ar",
-    "16000",
-    outputPath
-  ]);
+  try {
+    await execFileAsync(ffmpegBinary, [
+      "-y",
+      "-ss",
+      formatSeconds(startSec),
+      "-i",
+      inputPath,
+      "-t",
+      formatSeconds(durationSec),
+      "-ac",
+      "1",
+      "-ar",
+      "16000",
+      outputPath
+    ]);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new Error(
+        `ffmpeg not found. Install ffmpeg or set FFMPEG_PATH in .env. Tried: ${ffmpegBinary}`
+      );
+    }
+    throw error;
+  }
 
   return {
     outputPath,
     startSec,
     durationSec
   };
+}
+
+function resolveBinary(envKey, candidates) {
+  const requested = process.env[envKey];
+  if (requested && fs.existsSync(requested)) {
+    return requested;
+  }
+  for (const candidate of candidates) {
+    if (candidate.includes(path.sep)) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+      continue;
+    }
+    return candidate;
+  }
+  return candidates[0];
 }
 
 function chooseClipDuration(totalDurationSec, preferredDurationSec) {

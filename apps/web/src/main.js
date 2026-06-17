@@ -656,7 +656,8 @@ async function askFutureSelfAvatar() {
 
 async function createAvatarJob(workerUrl, options = {}) {
   const uploadedFace = await resolveSelectedFaceUpload();
-  if (uploadedFace || options.useAudio === false) {
+  const uploadedAudio = await resolveSelectedAudioUpload();
+  if (uploadedFace || uploadedAudio || options.useAudio === false) {
     const form = new FormData();
     form.append("engine", options.engineOverride || elements.avatarEngine.value);
     if (uploadedFace) {
@@ -666,6 +667,8 @@ async function createAvatarJob(workerUrl, options = {}) {
     }
     if (options.useAudio === false) {
       // idle-loop only needs the current/generated face image
+    } else if (uploadedAudio) {
+      form.append("audio", uploadedAudio.blob, uploadedAudio.filename);
     } else {
       form.append("audioPath", elements.avatarAudioPath.value.trim());
     }
@@ -705,6 +708,29 @@ async function resolveSelectedFaceUpload() {
   } catch {
     return null;
   }
+}
+
+async function resolveSelectedAudioUpload() {
+  const audioPath = String(elements.avatarAudioPath.value || "").trim();
+  if (!audioPath || isLikelyWorkerMountedPath(audioPath)) return null;
+
+  try {
+    const response = await fetch(audioPath.startsWith("/") ? audioPath : `/${audioPath}`);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    const extension = inferExtension(blob.type || "", audioPath, "wav");
+    return {
+      blob,
+      filename: `lipsync-sample.${extension}`
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isLikelyWorkerMountedPath(value) {
+  const text = String(value || "");
+  return text.startsWith("models/") || text.startsWith("/app/") || text.startsWith("/home/");
 }
 
 async function buildFacePayloadForReply() {
@@ -1084,14 +1110,20 @@ function normalizeBaseUrl(value) {
   return String(value || "http://localhost:8080").trim().replace(/\/+$/, "");
 }
 
-function inferExtension(contentType, sourceUrl) {
+function inferExtension(contentType, sourceUrl, fallback = "png") {
   if (contentType.includes("png")) return "png";
   if (contentType.includes("jpeg") || contentType.includes("jpg")) return "jpg";
   if (contentType.includes("webp")) return "webp";
+  if (contentType.includes("wav")) return "wav";
+  if (contentType.includes("mpeg") || contentType.includes("mp3")) return "mp3";
+  if (contentType.includes("mp4") || contentType.includes("m4a")) return "m4a";
+  if (contentType.includes("aac")) return "aac";
   const clean = String(sourceUrl || "").split("?")[0];
   const ext = clean.split(".").pop()?.toLowerCase();
-  if (ext && ["png", "jpg", "jpeg", "webp", "bmp"].includes(ext)) return ext === "jpeg" ? "jpg" : ext;
-  return "png";
+  if (ext && ["png", "jpg", "jpeg", "webp", "bmp", "wav", "mp3", "m4a", "aac"].includes(ext)) {
+    return ext === "jpeg" ? "jpg" : ext;
+  }
+  return fallback;
 }
 
 function updateConnectionState(connectionState) {
