@@ -27,9 +27,7 @@ def main() -> int:
     args = parser.parse_args()
 
     repo = Path(os.environ.get("LIVEPORTRAIT_REPO_DIR", DEFAULT_REPO)).resolve()
-    python_bin = Path(
-        os.environ.get("LIVEPORTRAIT_PYTHON", repo / ".venv" / "bin" / "python")
-    ).resolve()
+    python_bin, python_probe = resolve_liveportrait_python(repo)
     out_dir = Path(args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     report_path = out_dir / "report.json"
@@ -42,7 +40,12 @@ def main() -> int:
     if not repo.exists():
         return write_report(report_path, status="error", error=f"LivePortrait repo does not exist: {repo}")
     if not python_bin.exists():
-        return write_report(report_path, status="error", error=f"LivePortrait python does not exist: {python_bin}")
+        return write_report(
+            report_path,
+            status="error",
+            error=f"LivePortrait python does not exist: {python_bin}",
+            pythonProbe=python_probe,
+        )
 
     driving_path = Path(args.driving)
     if args.relative or not driving_path.is_absolute():
@@ -89,7 +92,53 @@ def main() -> int:
             "wallClockMs": round((time.perf_counter() - started) * 1000),
         },
         command=command,
+        pythonProbe=python_probe,
     )
+
+
+def resolve_liveportrait_python(repo: Path) -> tuple[Path, dict]:
+    repo_python = (repo / ".venv" / "bin" / "python").resolve()
+    env_python_raw = os.environ.get("LIVEPORTRAIT_PYTHON")
+    candidates: list[tuple[str, Path]] = []
+    if env_python_raw:
+        candidates.append(("env", Path(env_python_raw).resolve()))
+    candidates.append(("repo-venv", repo_python))
+
+    probe: dict[str, object] = {
+        "requested": env_python_raw or "",
+        "repoVenv": str(repo_python),
+        "checks": [],
+    }
+    fallback: Path | None = None
+
+    for label, candidate in candidates:
+        exists = candidate.exists()
+        check: dict[str, object] = {"label": label, "path": str(candidate), "exists": exists}
+        if exists and fallback is None:
+            fallback = candidate
+        if not exists:
+            probe["checks"].append(check)
+            continue
+
+        test = subprocess.run(
+            [str(candidate), "-c", "import tyro; print('ok')"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        check["returncode"] = test.returncode
+        check["stdout"] = tail_lines(test.stdout, 5)
+        check["stderr"] = tail_lines(test.stderr, 10)
+        probe["checks"].append(check)
+        if test.returncode == 0:
+            probe["selected"] = str(candidate)
+            probe["selectedLabel"] = label
+            return candidate, probe
+
+    selected = fallback or repo_python
+    probe["selected"] = str(selected)
+    probe["selectedLabel"] = "fallback"
+    return selected, probe
 
 
 def find_latest_video(directory: Path, started: float) -> Path | None:
