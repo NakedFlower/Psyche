@@ -1,10 +1,13 @@
 const crypto = require("node:crypto");
+const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
+const util = require("node:util");
 
 const rootDir = path.resolve(__dirname, "../..");
 const webDir = path.resolve(rootDir, "apps/web");
+const execFileAsync = util.promisify(execFile);
 
 loadEnv(path.join(rootDir, ".env"));
 
@@ -205,6 +208,13 @@ async function cloneVoice(req, res) {
   const samplePath = path.resolve(rootDir, "runs/voice-samples", `${Date.now()}-${safeName}`);
   fs.mkdirSync(path.dirname(samplePath), { recursive: true });
   fs.writeFileSync(samplePath, sample.data);
+  const audioDurationSec = await probeAudioDuration(samplePath);
+  const lipSyncSample = await createLipSyncSeedClip({
+    inputPath: samplePath,
+    outputDir: path.resolve(rootDir, "runs/lipsync-seeds"),
+    preferredDurationSec: 5,
+    totalDurationSec: audioDurationSec
+  });
 
   const voiceName = String(form.fields.name || "Psyche Future Self Voice").slice(0, 80);
   const gender = String(form.fields.gender || "neutral").slice(0, 30);
@@ -243,7 +253,11 @@ async function cloneVoice(req, res) {
     gender,
     voiceId: result.voice_id,
     requiresVerification: Boolean(result.requires_verification),
-    sampleFile: samplePath
+    sampleFile: samplePath,
+    audioDurationSec,
+    lipSyncSampleFile: lipSyncSample.outputPath,
+    lipSyncSampleStartSec: lipSyncSample.startSec,
+    lipSyncSampleDurationSec: lipSyncSample.durationSec
   };
   const output = path.resolve(rootDir, "runs/voices", `elevenlabs-${Date.now()}.json`);
   fs.mkdirSync(path.dirname(output), { recursive: true });
@@ -254,8 +268,81 @@ async function cloneVoice(req, res) {
     output,
     voiceFile: path.relative(rootDir, output),
     sampleFile: path.relative(rootDir, samplePath),
+    lipSyncSampleFile: path.relative(rootDir, lipSyncSample.outputPath),
     ...record
   });
+}
+
+async function probeAudioDuration(filePath) {
+  try {
+    const { stdout } = await execFileAsync("ffprobe", [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "default=noprint_wrappers=1:nokey=1",
+      filePath
+    ]);
+    const seconds = Number.parseFloat(String(stdout || "").trim());
+    return Number.isFinite(seconds) ? Math.max(0, seconds) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function createLipSyncSeedClip({ inputPath, outputDir, preferredDurationSec, totalDurationSec }) {
+  fs.mkdirSync(outputDir, { recursive: true });
+  const ext = inferAudioExtension(inputPath);
+  const outputPath = path.resolve(
+    outputDir,
+    `${path.basename(inputPath, path.extname(inputPath))}-lipsync-${preferredDurationSec}s.${ext}`
+  );
+  const durationSec = chooseClipDuration(totalDurationSec, preferredDurationSec);
+  const startSec = chooseClipStart(totalDurationSec, durationSec);
+
+  await execFileAsync("ffmpeg", [
+    "-y",
+    "-ss",
+    formatSeconds(startSec),
+    "-i",
+    inputPath,
+    "-t",
+    formatSeconds(durationSec),
+    "-ac",
+    "1",
+    "-ar",
+    "16000",
+    outputPath
+  ]);
+
+  return {
+    outputPath,
+    startSec,
+    durationSec
+  };
+}
+
+function chooseClipDuration(totalDurationSec, preferredDurationSec) {
+  if (!Number.isFinite(totalDurationSec) || totalDurationSec <= 0) return preferredDurationSec;
+  return Math.max(2.5, Math.min(preferredDurationSec, totalDurationSec));
+}
+
+function chooseClipStart(totalDurationSec, clipDurationSec) {
+  if (!Number.isFinite(totalDurationSec) || totalDurationSec <= clipDurationSec) return 0;
+  const padding = Math.min(12, Math.max(1, totalDurationSec * 0.12));
+  const latestStart = Math.max(0, totalDurationSec - clipDurationSec - padding);
+  return Math.min(Math.max(0, padding), latestStart);
+}
+
+function inferAudioExtension(filePath) {
+  const ext = path.extname(filePath).replace(/^\./, "").toLowerCase();
+  if (["wav", "mp3", "m4a", "aac"].includes(ext)) return ext;
+  return "wav";
+}
+
+function formatSeconds(value) {
+  return Number(value || 0).toFixed(2);
 }
 
 async function createAvatarReply(req, res) {

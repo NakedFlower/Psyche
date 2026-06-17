@@ -353,6 +353,10 @@ async function cloneVoiceFromUpload() {
       voiceId: result.voiceId,
       voiceFile: result.voiceFile,
       sampleFile: result.sampleFile,
+      audioDurationSec: result.audioDurationSec,
+      lipSyncSampleFile: result.lipSyncSampleFile,
+      lipSyncSampleStartSec: result.lipSyncSampleStartSec,
+      lipSyncSampleDurationSec: result.lipSyncSampleDurationSec,
       requiresVerification: result.requiresVerification,
       env: [
         `ELEVENLABS_VOICE_ID=${result.voiceId}`,
@@ -362,6 +366,9 @@ async function cloneVoiceFromUpload() {
       runWithClonedVoice:
         `ELEVENLABS_VOICE_ID=${result.voiceId} /opt/homebrew/bin/node apps/agent/room-agent.mjs`
     });
+    if (result.lipSyncSampleFile) {
+      elements.avatarAudioPath.value = result.lipSyncSampleFile;
+    }
     appendEvent("voice", `Cloned voice ${result.voiceId}`);
   } catch (error) {
     setSetupOutput({ type: "voice.error", message: error.message });
