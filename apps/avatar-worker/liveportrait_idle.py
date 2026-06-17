@@ -97,11 +97,11 @@ def main() -> int:
 
 
 def resolve_liveportrait_python(repo: Path) -> tuple[Path, dict]:
-    repo_python = (repo / ".venv" / "bin" / "python").resolve()
+    repo_python = repo / ".venv" / "bin" / "python"
     env_python_raw = os.environ.get("LIVEPORTRAIT_PYTHON")
     candidates: list[tuple[str, Path]] = []
     if env_python_raw:
-        candidates.append(("env", Path(env_python_raw).resolve()))
+        candidates.append(("env", Path(env_python_raw).expanduser()))
     candidates.append(("repo-venv", repo_python))
 
     probe: dict[str, object] = {
